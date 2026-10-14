@@ -143,7 +143,10 @@ const save = () => {
   }
   saveLocal();
 };
-const T = () => S.trips.find((t) => t.id === S.cur) || S.trips[0];
+// 舊版建立的旅程缺新功能的欄位(錢包、日記、必買…), 載入時補上預設值
+function fillTrip(t) { const base = newTrip(); for (const k of Object.keys(base)) if (t[k] == null) t[k] = base[k]; return t; }
+S.trips.forEach(fillTrip);
+const T = () => fillTrip(S.trips.find((t) => t.id === S.cur) || S.trips[0]);
 
 // 票券檔案存 IndexedDB(localStorage 只有 ~5MB)
 const idb = new Promise((res, rej) => {
@@ -288,9 +291,11 @@ function openForm(kind, item, after, pre) {
 // ===== 目的地(城市定位) =====
 const CUR2CC = { JPY: "JP", KRW: "KR", THB: "TH", SGD: "SG", CNY: "CN", AUD: "AU", NZD: "NZ", EUR: "FR", GBP: "GB", USD: "US", CAD: "CA", HKD: "HK", MOP: "MO", VND: "VN", MYR: "MY", PHP: "PH", IDR: "ID", CHF: "CH", CZK: "CZ", TRY: "TR", AED: "AE", TWD: "TW" };
 const ccOf = (t) => (t.loc && t.loc.cc) || CUR2CC[t.cur] || "";
-async function geoCity(q) {
-  const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?count=1&language=zh&format=json&name=${encodeURIComponent(q)}`);
-  const x = ((await r.json()).results || [])[0];
+async function geoCity(q, cur) {
+  const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?count=10&language=zh&format=json&name=${encodeURIComponent(q)}`);
+  const rs = (await r.json()).results || [], want = CUR2CC[cur];
+  // 同名城市很多(例如「福岡」), 優先選跟旅程幣別同一國的
+  const x = (want && rs.find((y) => y.country_code === want)) || rs[0];
   return x ? { name: x.name, country: x.country || "", lat: +x.latitude.toFixed(4), lon: +x.longitude.toFixed(4), tz: x.timezone, cc: x.country_code } : null;
 }
 
@@ -1469,7 +1474,11 @@ function render() {
   const t = T();
   $("#tripSel").innerHTML = S.trips.map((x) => `<option value="${x.id}" ${x.id === t.id ? "selected" : ""}>${esc(x.name)}</option>`).join("") + `<option value="__new">＋ 新增旅程</option>`;
   $("#nav").innerHTML = TABS.map(([k, ic, n]) => `<button data-tab="${k}" class="${S.tab === k ? "on" : ""}"><b>${ic}</b>${n}</button>`).join("");
-  $("#view").innerHTML = V[S.tab](t);
+  try { $("#view").innerHTML = V[S.tab](t); }
+  catch (err) {
+    console.error(err);
+    $("#view").innerHTML = `<div class="card" style="border-color:var(--red)"><b>這頁出錯了</b><div class="mut" style="margin-top:4px">請截圖給開發者：${esc(err.message)}</div><div class="mut">${esc((err.stack || "").split("\n")[1] || "")}</div></div>`;
+  }
   $("#fab").style.display = fabKind() ? "" : "none";
   if (S.tab === "fx") toolBind(t);
   if (S.tab === "itin" && filt.iv === "地圖") initMap(t);
@@ -1743,7 +1752,7 @@ function openSettings() {
     const q = (fd.get("city") || "").trim();
     if (q !== (t.loc ? t.loc.q : "")) {
       if (!q) t.loc = null;
-      else geoCity(q).then((l) => { if (!l) return alert(`找不到「${q}」，換個寫法試試（例如英文）`); t.loc = { ...l, q }; save(); render(); }).catch(() => alert("城市查詢失敗（需要網路）"));
+      else geoCity(q, t.cur).then((l) => { if (!l) return alert(`找不到「${q}」，換個寫法試試（例如英文）`); t.loc = { ...l, q }; save(); render(); }).catch(() => alert("城市查詢失敗（需要網路）"));
     }
     save(); render();
   };
@@ -1815,6 +1824,11 @@ window.TravelApp = {
 function isBlank(t) { return ["itin", "spots", "books", "tickets", "exp", "pack"].every((k) => !t[k].length) && !t.start; }
 
 for (const t of S.trips) snap[t.id] = tripKey(t);
+setTimeout(() => S.trips.forEach((t) => {
+  const want = CUR2CC[t.cur];
+  if (t.loc && t.loc.q && want && want !== "TW" && t.loc.cc && t.loc.cc !== want)
+    geoCity(t.loc.q, t.cur).then((l) => { if (l && l.cc === want) { t.loc = { ...l, q: t.loc.q }; save(); render(); } }).catch(() => {});
+}), 500);
 // 舊資料沒有mt: 有內容的給1(要上傳), 沒動過的預設旅程給0(不上傳)
 for (const t of S.trips) t.mt ||= isBlank(t) ? 0 : 1;
 render();
