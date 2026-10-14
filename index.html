@@ -26,6 +26,8 @@ nav button{flex:1 1 0;min-width:0;white-space:nowrap;border:0;background:none;co
 nav button b{font-size:calc(19px*var(--fz,1));font-weight:400}
 nav button.on{color:var(--acc);font-weight:600}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+/* 長清單: 畫面外的卡片先不排版, 捲到才畫(大幅減少卡頓) */
+#view .card{content-visibility:auto;contain-intrinsic-size:auto 88px}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .sp{flex:1}
 .mut{color:var(--mut);font-size:calc(13px*var(--fz,1))}
@@ -139,14 +141,25 @@ const save = () => {
     if (snap[t.id] === j) continue;
     if (snap[t.id] !== undefined || !t.mt) t.mt = Date.now();
     snap[t.id] = j;
-    window.TravelSync && TravelSync.push(t);
+    pushQ.add(t.id);
   }
   saveLocal();
+  clearTimeout(pushTimer); pushTimer = setTimeout(flushPush, 800);
 };
+const pushQ = new Set(); let pushTimer;
+function flushPush() {
+  clearTimeout(pushTimer);
+  if (!window.TravelSync) return;
+  for (const id of pushQ) { const t = S.trips.find((x) => x.id === id); if (t) TravelSync.push(t); }
+  pushQ.clear();
+}
+// 關掉或切到背景前, 把還沒傳的送出去
+addEventListener("visibilitychange", () => document.visibilityState === "hidden" && flushPush());
+addEventListener("pagehide", flushPush);
 // 舊版建立的旅程缺新功能的欄位(錢包、日記、必買…), 載入時補上預設值
 function fillTrip(t) { const base = newTrip(); for (const k of Object.keys(base)) if (t[k] == null) t[k] = base[k]; return t; }
 S.trips.forEach(fillTrip);
-const T = () => fillTrip(S.trips.find((t) => t.id === S.cur) || S.trips[0]);
+const T = () => { const t = S.trips.find((x) => x.id === S.cur) || S.trips[0]; return t.diary && t.shop ? t : fillTrip(t); };
 
 // 票券檔案存 IndexedDB(localStorage 只有 ~5MB)
 const idb = new Promise((res, rej) => {
@@ -181,7 +194,8 @@ function rate(from, to) {
   return R[to] / R[from];
 }
 const toHome = (amt, cur) => { const v = (+amt || 0) * rate(cur, T().home); return isFinite(v) ? v : 0; };
-const fmt = (n, d = 0) => isFinite(n) ? n.toLocaleString("zh-TW", { maximumFractionDigits: d, minimumFractionDigits: 0 }) : "—";
+const NF = {};
+const fmt = (n, d = 0) => isFinite(n) ? (NF[d] ||= new Intl.NumberFormat("zh-TW", { maximumFractionDigits: d, minimumFractionDigits: 0 })).format(n) : "—";
 
 // ===== 欄位定義(通用表單) =====
 const EXP_CATS = ["餐飲", "交通", "住宿", "門票", "購物", "伴手禮", "通訊", "機票", "其他"];
@@ -611,14 +625,17 @@ function lineChart(pts, dec = 4) {
   const tip = document.createElement("div"); tip.id = "ctip"; document.body.appendChild(tip);
   const show = (e) => {
     const el = e.target.closest && e.target.closest("[data-tip]");
+    if (!el && tip.style.display === "none") return;
     document.querySelectorAll("svg .gx").forEach((l) => (l.style.display = "none"));
     if (!el) return (tip.style.display = "none");
     tip.textContent = el.dataset.tip; tip.style.display = "block";
     const w = tip.offsetWidth; tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, e.clientX - w / 2)) + "px"; tip.style.top = Math.max(8, e.clientY - 44) + "px";
     if (el.dataset.gx) { const l = el.ownerSVGElement.querySelector(".gx"); l.setAttribute("x1", el.dataset.gx); l.setAttribute("x2", el.dataset.gx); l.style.display = ""; }
   };
-  document.addEventListener("pointermove", show); document.addEventListener("pointerdown", show);
-  document.addEventListener("scroll", () => (tip.style.display = "none"), true);
+  let raf = 0, last;
+  document.addEventListener("pointermove", (e) => { last = e; if (!raf) raf = requestAnimationFrame(() => { raf = 0; show(last); }); }, { passive: true });
+  document.addEventListener("pointerdown", show, { passive: true });
+  document.addEventListener("scroll", () => { if (tip.style.display !== "none") tip.style.display = "none"; }, { capture: true, passive: true });
 })();
 
 // ===== 旅程日期 / 每日預算 =====
@@ -1334,10 +1351,15 @@ const V = {
     if (t.exp.length && cdays.length > 1) h += `<h2>每日花費（${t.home}）</h2><div class="card">${barChart(cdays.map((d) => { const v = dsum(d); return { k: d.slice(5), v, warn: daily && v > daily, tip: `${d}(${dayName(d)})：${fmt(v)} ${t.home}${daily && v > daily ? "・超過每日預算" : ""}` }; }), daily, "每日預算")}</div>`;
     if (Object.keys(byCat).length) h += `<h2>分類（${t.home}）</h2><div class="card"><table>${Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([c, v]) => `<tr><td style="width:70px">${c}</td><td><div class="bar"><i style="width:${(v / maxC) * 100}%"></i></div></td><td class="r" style="width:90px">${fmt(v)}</td><td class="r mut" style="width:44px">${fmt((v / total) * 100)}%</td></tr>`).join("")}</table></div>`;
     if (t.people.length > 1 && t.exp.length) h += settle(t);
-    const by = {}; t.exp.forEach((e) => (by[e.date || "未定"] ||= []).push(e));
-    h += Object.keys(by).sort().reverse().map((d) => `<div class="daybar row"><span class="sp">${d} ${dayName(d) ? "(" + dayName(d) + ")" : ""}</span><span class="mut" style="${daily && tot(by[d]) > daily ? "color:var(--red);font-weight:700" : ""}">${fmt(tot(by[d]))} ${t.home}${daily && tot(by[d]) > daily ? " 超支" : ""}</span></div>` +
+    // 只先顯示最近 80 筆, 其餘按「顯示全部」
+    const LIMIT = 80, sorted = t.exp.slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    const shown = filt.expAll ? sorted : sorted.slice(0, LIMIT);
+    const by = {}; shown.forEach((e) => (by[e.date || "未定"] ||= []).push(e));
+    const dayTot = {}; t.exp.forEach((e) => { const k = e.date || "未定"; dayTot[k] = (dayTot[k] || 0) + toHome(e.amt, e.cur); });
+    h += Object.keys(by).sort().reverse().map((d) => `<div class="daybar row"><span class="sp">${d} ${dayName(d) ? "(" + dayName(d) + ")" : ""}</span><span class="mut" style="${daily && dayTot[d] > daily ? "color:var(--red);font-weight:700" : ""}">${fmt(dayTot[d])} ${t.home}${daily && dayTot[d] > daily ? " 超支" : ""}</span></div>` +
       by[d].map((e) => `<div class="card row" data-edit="exp:${e.id}"><div class="sp"><b>${esc(e.note || e.cat)}</b>${e.fileId ? ` <button class="sm" data-act="fopen" data-k="exp" data-id="${e.id}">🧾</button>` : ""}<div class="mut">${esc(e.cat)}・${esc(e.pay || "")}${t.people.length > 1 ? `・${esc(e.payer)}付` : ""}</div></div>
         <div style="text-align:right"><b>${fmt(e.amt, 2)} ${e.cur}</b>${e.cur !== t.home ? `<div class="mut">≈ ${fmt(toHome(e.amt, e.cur))} ${t.home}</div>` : ""}</div></div>`).join("")).join("");
+    if (sorted.length > shown.length) h += `<div style="text-align:center;margin:10px 0"><button data-act="expall">顯示全部 ${sorted.length} 筆</button></div>`;
     return h + (t.exp.length ? "" : `<div class="empty">還沒有花費</div>`);
   },
   fx(t) {
@@ -1531,6 +1553,7 @@ document.addEventListener("click", async (e) => {
     else if (act === "opensettings") return openSettings();
     else if (act === "gonotes") { filt.pk = "出發準備"; S.ui = { ...(S.ui || {}), pk: "出發準備" }; return goTab("pack"); }
     else if (act === "quickexp") return openForm("exp");
+    else if (act === "expall") { filt.expAll = true; return render(); }
     else if (act === "diary") return openDiary(t, el.dataset.d);
     else if (act === "settleshare") {
       const txt = settleText(t);
@@ -1837,7 +1860,10 @@ loadRates();
 let syncLoaded = false;
 const loadSync = () => { if (!FIREBASE_CONFIG || syncLoaded) return; import("./sync.js").then((m) => { syncLoaded = true; m.start(FIREBASE_CONFIG); }).catch(() => {}); };
 loadSync(); addEventListener("online", loadSync);
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+  navigator.serviceWorker.addEventListener("message", (e) => { if (e.data && e.data.type === "updated") toast("有新版本", "更新", () => location.reload()); });
+}
 </script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 // 旅行手帳離線快取
 // 1. 自己的檔案: network-first(有網路拿最新, 沒網路用快取)
 // 2. 地圖底圖、Leaflet、收據辨識程式: cache-first(看過的地圖區域離線也能看)
-const CACHE = "travel-v16";
+const CACHE = "travel-v17";
 const LIB = "travel-lib-v1";
 const TILES = "travel-tiles-v1";
 const MAX_TILES = 3000;
@@ -41,13 +41,23 @@ self.addEventListener("fetch", (e) => {
   if (u.startsWith("https://cdnjs.cloudflare.com/ajax/libs/leaflet/") || u.startsWith("https://cdn.jsdelivr.net/npm/tesseract") || u.startsWith("https://cdn.jsdelivr.net/npm/@tesseract.js-data/"))
     return e.respondWith(cacheFirst(req, LIB));
   if (!u.startsWith(ROOT)) return;
-  // no-cache: 每次跟伺服器確認是不是最新版(沒改只回 304, 很省流量), 避免新舊檔案混用
-  e.respondWith(
-    fetch(u, { cache: "no-cache", credentials: "same-origin" })
-      .then((res) => {
-        if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
-        return res;
-      })
-      .catch(() => caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match(ROOT)))
-  );
+  // 自己的檔案: 先用快取秒開, 背景再跟伺服器確認; 首頁有新版就通知畫面顯示「更新」
+  e.respondWith((async () => {
+    const c = await caches.open(CACHE);
+    const hit = await c.match(req, { ignoreSearch: true });
+    // 要先複製舊內容: 交給畫面後就不能再讀了
+    const oldText = hit && req.mode === "navigate" ? hit.clone().text().catch(() => null) : null;
+    const net = fetch(u, { cache: "no-cache", credentials: "same-origin" }).then(async (res) => {
+      if (res.ok) {
+        const old = oldText && (await oldText);
+        await c.put(req, res.clone());
+        if (old != null && old !== (await res.clone().text())) {
+          (await self.clients.matchAll({ type: "window", includeUncontrolled: true })).forEach((cl) => cl.postMessage({ type: "updated" }));
+        }
+      }
+      return res;
+    }).catch(() => null);
+    if (hit) { e.waitUntil(net); return hit; }
+    return (await net) || (await caches.match(ROOT)) || Response.error();
+  })());
 });
