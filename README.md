@@ -9,4 +9,24 @@
 ## 雲端同步
 
 Firebase 專案 `travel-672ff`（Auth 電子郵件/密碼 + Firestore），設定在 `index.html` 的 `FIREBASE_CONFIG`。
-資料存在 `users/{uid}/trips/{tripId}`，Firestore 規則限制只有本人能讀寫。票券檔案不同步。
+私人旅程 `users/{uid}/trips/{tripId}`，共享旅程 `shared/{tripId}`（`emails` 成員才能讀寫），照片/PDF 存 `.../files/{fileId}`（壓縮後 ≤ ~700KB）。
+
+Firestore 規則：
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /users/{uid}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    match /shared/{tripId} {
+      allow read, update, delete: if request.auth != null && request.auth.token.email in resource.data.emails;
+      allow create: if request.auth != null && request.auth.token.email in request.resource.data.emails;
+      match /files/{fileId} {
+        allow read, write: if request.auth != null && request.auth.token.email in get(/databases/$(db)/documents/shared/$(tripId)).data.emails;
+      }
+    }
+  }
+}
+```
