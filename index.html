@@ -154,7 +154,10 @@ function flushPush() {
   pushQ.clear();
 }
 // 關掉或切到背景前, 把還沒傳的送出去
-addEventListener("visibilitychange", () => document.visibilityState === "hidden" && flushPush());
+addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushPush();
+  else loadRates(); // 切回來時, 超過 6 小時就重抓匯率
+});
 addEventListener("pagehide", flushPush);
 // 舊版建立的旅程缺新功能的欄位(錢包、日記、必買…), 載入時補上預設值
 function fillTrip(t) { const base = newTrip(); for (const k of Object.keys(base)) if (t[k] == null) t[k] = base[k]; return t; }
@@ -194,6 +197,7 @@ function rate(from, to) {
   return R[to] / R[from];
 }
 const toHome = (amt, cur) => { const v = (+amt || 0) * rate(cur, T().home); return isFinite(v) ? v : 0; };
+const ago = (ts) => { const m = Math.round((Date.now() - ts) / 6e4); return m < 60 ? `${Math.max(1, m)} 分鐘前` : m < 1440 ? `${Math.round(m / 60)} 小時前` : `${Math.round(m / 1440)} 天前`; };
 const NF = {};
 const fmt = (n, d = 0) => isFinite(n) ? (NF[d] ||= new Intl.NumberFormat("zh-TW", { maximumFractionDigits: d, minimumFractionDigits: 0 })).format(n) : "—";
 
@@ -1258,7 +1262,7 @@ const V = {
     let h = `<div class="card"><h3>${esc(t.name)}</h3><div class="mut">${t.start || "?"} ～ ${t.end || "?"}・${t.people.map(esc).join("、")}</div>
       ${days !== null ? `<div class="big" style="margin-top:6px">${days > 0 ? `倒數 ${days} 天` : days === 0 ? "今天出發！" : t.end && today() <= t.end ? `旅程第 ${1 - days} 天` : "已結束"}</div>` : `<div class="mut" style="margin-top:6px">到 ⚙︎ 設定日期</div>`}</div>`;
     h += `<div class="grid2"><div class="card"><div class="mut">總花費 (${t.home})</div><div class="big">${fmt(total)}</div>${t.budget ? `<div class="bar"><i style="width:${Math.min(100, (total / t.budget) * 100)}%;${total > t.budget ? "background:var(--red)" : ""}"></i></div><div class="mut">預算 ${fmt(t.budget)}</div>` : ""}</div>
-      <div class="card"><div class="mut">1 ${t.cur} =</div><div class="big">${fmt(rate(t.cur, t.home), 4)}</div><div class="mut">${t.home}${t.manualRate ? "（手動）" : ""}</div></div></div>`;
+      <div class="card"><div class="mut">1 ${t.cur} =</div><div class="big">${fmt(rate(t.cur, t.home), 4)}</div><div class="mut">${t.home}${t.manualRate ? "（手動匯率）" : S.rates ? `・${ago(S.rates.ts)}更新` : ""}</div></div></div>`;
     h += `<div class="row" style="margin-bottom:10px"><button class="pri" data-act="quickexp" style="flex:1">＋ 記一筆</button><label class="btn" style="margin:0;flex:1;text-align:center">📷 拍收據<input type="file" accept="image/*" capture="environment" id="ocrIn" hidden></label></div>`;
     const ended = t.end && today() > t.end;
     if (!t.start || days > 0) {
