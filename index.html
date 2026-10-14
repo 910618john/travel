@@ -66,6 +66,9 @@ a{color:var(--acc)}
 .daybar{position:sticky;top:57px;background:var(--bg);padding:6px 0;font-weight:700;z-index:1}
 .time{font-variant-numeric:tabular-nums;font-weight:600;min-width:46px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+/* iPhone Safari: 一般 div/tr 要有 cursor:pointer, 點擊才會傳到 document 的事件處理 */
+[data-edit],[data-act],[data-tab],[data-f],[data-big],[data-say],[data-hit],[data-drag],[data-tip],[data-rmph],[data-d]{cursor:pointer;-webkit-tap-highlight-color:rgba(0,0,0,.06)}
+main{padding-bottom:84px}
 .pin{background:var(--acc);color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:calc(13px*var(--fz,1));border:2px solid #fff;box-shadow:0 1px 4px #0006}
 #map{height:62vh;border-radius:12px;border:1px solid var(--line)}
 .leaflet-popup-content{color:#1f2328}
@@ -1156,6 +1159,11 @@ const V = {
       <div class="card"><div class="mut">1 ${t.cur} =</div><div class="big">${fmt(rate(t.cur, t.home), 4)}</div><div class="mut">${t.home}${t.manualRate ? "（手動）" : ""}</div></div></div>`;
     h += `<div class="row" style="margin-bottom:10px"><button class="pri" data-act="quickexp" style="flex:1">＋ 記一筆</button><label class="btn" style="margin:0;flex:1;text-align:center">📷 拍收據<input type="file" accept="image/*" capture="environment" id="ocrIn" hidden></label></div>`;
     const ended = t.end && today() > t.end;
+    if (!t.start || days > 0) {
+      const cc = ccOf(t), P = PREP[cc] || (EU_CC.includes(cc) ? PREP.EU : null), total = (P ? P[0].length : 0) + PREP_ALL.length;
+      const done = Object.keys(t.prep || {}).length;
+      h += `<div class="card row" data-act="gonotes"><span class="sp">✈️ <b>出發前準備・行前注意事項</b><div class="mut">入境手續、插座、交通卡、搭機與回台規定・已完成 ${Math.min(done, total)}/${total}</div></span><span class="mut">›</span></div>`;
+    }
     const hasData = S.trips.some((x) => !isBlank(x));
     if (hasData && !(window.TravelSync && TravelSync.user) && Date.now() - (S.lastExport || 0) > 14 * 864e5)
       h += `<div class="card row" style="border-color:var(--warn)"><span class="sp">💾 資料目前只存在這支手機，換手機或清除瀏覽器資料會不見</span><button class="sm pri" data-act="opensettings">登入同步／備份</button></div>`;
@@ -1437,6 +1445,7 @@ document.addEventListener("click", async (e) => {
     else if (act === "geoall") return geoAll(t);
     else if (act === "premap") return preMap(t);
     else if (act === "opensettings") return openSettings();
+    else if (act === "gonotes") { filt.pk = "出發準備"; S.ui = { ...(S.ui || {}), pk: "出發準備" }; return goTab("pack"); }
     else if (act === "quickexp") return openForm("exp");
     else if (act === "diary") return openDiary(t, el.dataset.d);
     else if (act === "settleshare") {

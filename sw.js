@@ -1,7 +1,7 @@
 // 旅行手帳離線快取
 // 1. 自己的檔案: network-first(有網路拿最新, 沒網路用快取)
 // 2. 地圖底圖、Leaflet、收據辨識程式: cache-first(看過的地圖區域離線也能看)
-const CACHE = "travel-v13";
+const CACHE = "travel-v14";
 const LIB = "travel-lib-v1";
 const TILES = "travel-tiles-v1";
 const MAX_TILES = 3000;
@@ -41,8 +41,9 @@ self.addEventListener("fetch", (e) => {
   if (u.startsWith("https://cdnjs.cloudflare.com/ajax/libs/leaflet/") || u.startsWith("https://cdn.jsdelivr.net/npm/tesseract") || u.startsWith("https://cdn.jsdelivr.net/npm/@tesseract.js-data/"))
     return e.respondWith(cacheFirst(req, LIB));
   if (!u.startsWith(ROOT)) return;
+  // no-cache: 每次跟伺服器確認是不是最新版(沒改只回 304, 很省流量), 避免新舊檔案混用
   e.respondWith(
-    fetch(req)
+    fetch(u, { cache: "no-cache", credentials: "same-origin" })
       .then((res) => {
         if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
         return res;
