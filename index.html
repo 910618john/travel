@@ -38,7 +38,11 @@ button,.btn{border:1px solid var(--line);background:var(--card);color:var(--fg);
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .pri{color:#042f2e}}
 .sm{padding:3px 8px;font-size:calc(12px*var(--fz,1))}
 .del{color:var(--red)}
-input,select,textarea{width:100%;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:8px;padding:8px;font:inherit}
+input,select,textarea{width:100%;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:8px;padding:8px;font:inherit;font-size:max(16px,calc(15px*var(--fz,1)))}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));background:#1f2328;color:#fff;border-radius:24px;padding:8px 8px 8px 16px;display:none;align-items:center;gap:10px;z-index:40;box-shadow:0 4px 14px #0005;white-space:nowrap}
+#toast button{background:none;border:0;color:#5eead4;font-weight:700}
+.hit{padding:8px 0;border-bottom:1px solid var(--line);cursor:pointer}
+.hit:last-child{border:0}
 textarea{min-height:70px}
 label{display:block;font-size:calc(13px*var(--fz,1));color:var(--mut);margin:8px 0 3px}
 .tag{display:inline-block;background:var(--acc2);color:var(--fg);border-radius:20px;padding:1px 9px;font-size:calc(12px*var(--fz,1))}
@@ -87,11 +91,13 @@ body.off #offline{display:block}
 <div id="offline">離線中：資料照常可用，地圖只顯示看過的區域</div>
 <header>
   <select id="tripSel"></select>
+  <button id="searchBtn" aria-label="搜尋">🔍</button>
   <button id="setBtn" aria-label="設定">⚙︎</button>
 </header>
 <main id="view"></main>
 <button class="fab pri" id="fab">＋</button>
 <nav id="nav"></nav>
+<div id="toast"><span></span><button type="button"></button></div>
 <dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
 
 <script>
@@ -168,7 +174,7 @@ function rate(from, to) {
   if (!R || !R[from] || !R[to]) return NaN;
   return R[to] / R[from];
 }
-const toHome = (amt, cur) => amt * rate(cur, T().home);
+const toHome = (amt, cur) => { const v = (+amt || 0) * rate(cur, T().home); return isFinite(v) ? v : 0; };
 const fmt = (n, d = 0) => isFinite(n) ? n.toLocaleString("zh-TW", { maximumFractionDigits: d, minimumFractionDigits: 0 }) : "—";
 
 // ===== 欄位定義(通用表單) =====
@@ -208,7 +214,7 @@ const SCHEMA = {
 };
 const DEFAULTS = {
   itin: () => ({ date: T().start || today() }),
-  exp: () => ({ date: today(), cur: T().cur, cat: "餐飲", payer: T().people[0], split: [...T().people], pay: "現金" }),
+  exp: () => { const t = T(), l = t.exp[t.exp.length - 1] || {}; return { date: today(), cur: l.cur || t.cur, cat: "餐飲", payer: t.people.includes(l.payer) ? l.payer : t.people[0], split: [...t.people], pay: l.pay || "現金" }; },
   books: () => ({ type: "機票", cur: T().home }),
   spots: () => ({ cat: "景點", prio: "想去" }),
   tickets: () => ({ cat: "門票" }),
@@ -236,15 +242,20 @@ function openForm(kind, item, after, pre) {
     else if (type === "file") h += `${o.fileName ? `<div class="mut">目前：${esc(o.fileName)}</div>` : ""}<input type="file" name="file" accept="image/*,application/pdf">`;
     else h += `<input name="${k}" type="${type}" ${type === "number" ? 'step="any" inputmode="decimal"' : ""} value="${esc(v)}" ${req ? "required" : ""}>`;
   }
-  h += `<div class="row" style="margin-top:14px">${isNew ? "" : '<button value="del" class="del">刪除</button>'}<span class="sp"></span><button value="cancel" formnovalidate>取消</button><button value="ok" class="pri">儲存</button></div>`;
+  h += `<div class="row" style="margin-top:14px">${isNew ? "" : '<button value="del" class="del" formnovalidate>刪除</button>'}<span class="sp"></span><button value="cancel" formnovalidate>取消</button><button value="ok" class="pri">儲存</button></div>`;
   f.innerHTML = h;
+  // 新增時直接跳到最重要的欄位(記帳=金額)
+  if (isNew) setTimeout(() => { const el = f.elements[kind === "exp" ? "amt" : (SCHEMA[kind].find((x) => x[3]) || [])[0]]; if (el && !el.value) el.focus(); }, 50);
   const dlg = $("#dlg");
   dlg.onclose = async () => {
     const act = dlg.returnValue; dlg.returnValue = "";
     if (act === "del") {
-      if (!confirm("確定刪除？")) return;
-      if (o.fileId) { fdel(o.fileId); window.TravelSync && TravelSync.delFile(t, o.fileId); }
-      t[kind] = t[kind].filter((x) => x.id !== o.id); save(); render(); return;
+      // 先移除, 6 秒內可以復原; 沒復原才真的刪檔案
+      const idx = t[kind].findIndex((x) => x.id === o.id), gone = t[kind][idx];
+      t[kind].splice(idx, 1); save(); render();
+      toast(`已刪除「${gone.title || gone.name || gone.note || gone.text || gone.cat || "項目"}」`, "復原", () => { t[kind].splice(Math.min(idx, t[kind].length), 0, gone); save(); render(); },
+        () => { if (gone.fileId) { fdel(gone.fileId); window.TravelSync && TravelSync.delFile(t, gone.fileId); } });
+      return;
     }
     if (act !== "ok") { if (isNew && o.fileId) { fdel(o.fileId); window.TravelSync && TravelSync.delFile(t, o.fileId); } return; }
     const fd = new FormData(f);
@@ -444,7 +455,7 @@ function parseTotal(text) {
 async function doOcr(file) {
   const t = T();
   const lang = { JPY: "jpn+eng", KRW: "kor+eng", CNY: "chi_sim+eng", HKD: "chi_tra+eng", MOP: "chi_tra+eng", TWD: "chi_tra+eng", THB: "tha+eng" }[t.cur] || "eng";
-  const st = $("#ocrSt"); const say = (m) => st && (st.textContent = m);
+  const st = $("#ocrSt"); const say = (m) => (st ? (st.textContent = m) : m && toast(m));
   say("處理照片…");
   const fobj = await storeFile(t, file); const blob = await fget(fobj.fileId);
   let amt = 0, hint = "";
@@ -1143,6 +1154,7 @@ const V = {
       ${days !== null ? `<div class="big" style="margin-top:6px">${days > 0 ? `倒數 ${days} 天` : days === 0 ? "今天出發！" : t.end && today() <= t.end ? `旅程第 ${1 - days} 天` : "已結束"}</div>` : `<div class="mut" style="margin-top:6px">到 ⚙︎ 設定日期</div>`}</div>`;
     h += `<div class="grid2"><div class="card"><div class="mut">總花費 (${t.home})</div><div class="big">${fmt(total)}</div>${t.budget ? `<div class="bar"><i style="width:${Math.min(100, (total / t.budget) * 100)}%;${total > t.budget ? "background:var(--red)" : ""}"></i></div><div class="mut">預算 ${fmt(t.budget)}</div>` : ""}</div>
       <div class="card"><div class="mut">1 ${t.cur} =</div><div class="big">${fmt(rate(t.cur, t.home), 4)}</div><div class="mut">${t.home}${t.manualRate ? "（手動）" : ""}</div></div></div>`;
+    h += `<div class="row" style="margin-bottom:10px"><button class="pri" data-act="quickexp" style="flex:1">＋ 記一筆</button><label class="btn" style="margin:0;flex:1;text-align:center">📷 拍收據<input type="file" accept="image/*" capture="environment" id="ocrIn" hidden></label></div>`;
     const ended = t.end && today() > t.end;
     const hasData = S.trips.some((x) => !isBlank(x));
     if (hasData && !(window.TravelSync && TravelSync.user) && Date.now() - (S.lastExport || 0) > 14 * 864e5)
@@ -1379,7 +1391,7 @@ function render() {
   if (S.tab === "fx") toolBind(t);
   if (S.tab === "itin" && filt.iv === "地圖") initMap(t);
   if ((S.tab === "exp" && filt.ex === "收據整理") || (S.tab === "itin" && filt.iv === "日記")) fillThumbs();
-  if (S.tab === "exp" && $("#ocrIn")) $("#ocrIn").onchange = (e) => { const f = e.target.files[0]; if (f) doOcr(f).catch((err) => alert("失敗：" + err.message)); };
+  if ($("#ocrIn")) $("#ocrIn").onchange = (e) => { const f = e.target.files[0]; if (f) doOcr(f).catch((err) => alert("失敗：" + err.message)); };
   loadWx(t);
 }
 
@@ -1425,6 +1437,7 @@ document.addEventListener("click", async (e) => {
     else if (act === "geoall") return geoAll(t);
     else if (act === "premap") return preMap(t);
     else if (act === "opensettings") return openSettings();
+    else if (act === "quickexp") return openForm("exp");
     else if (act === "diary") return openDiary(t, el.dataset.d);
     else if (act === "settleshare") {
       const txt = settleText(t);
@@ -1508,6 +1521,54 @@ addEventListener("popstate", (e) => {
   if (dlg.open) { closingByBack = true; dlg.close("cancel"); closingByBack = false; return; }
   if (e.state && e.state.tab && e.state.tab !== S.tab) goTab(e.state.tab, true);
 });
+// 底部提示(可帶一個按鈕, 例如「復原」)
+let toastTimer, toastDone;
+function toast(msg, btn, onBtn, onExpire) {
+  const el = $("#toast");
+  if (toastDone) { toastDone(); toastDone = null; }
+  clearTimeout(toastTimer);
+  el.querySelector("span").textContent = msg;
+  const b = el.querySelector("button"); b.textContent = btn || ""; b.style.display = btn ? "" : "none";
+  b.onclick = () => { toastDone = null; clearTimeout(toastTimer); el.style.display = "none"; onBtn && onBtn(); };
+  el.style.display = "flex";
+  toastDone = onExpire || null;
+  toastTimer = setTimeout(() => { el.style.display = "none"; if (toastDone) { toastDone(); toastDone = null; } }, btn ? 6000 : 2500);
+}
+// 全域搜尋
+const SEARCH = [
+  ["itin", "🗓 行程", (x) => [x.title, x.place, x.note], (x) => `${x.date || ""} ${x.time || ""}`],
+  ["spots", "📍 景點", (x) => [x.name, x.city, x.addr, x.note], (x) => x.city || x.cat],
+  ["books", "✈️ 訂位", (x) => [x.title, x.code, x.from, x.to, x.note], (x) => dt(x.start)],
+  ["tickets", "🎫 票券", (x) => [x.title, x.code, x.note], (x) => x.date || x.cat],
+  ["exp", "💰 花費", (x) => [x.note, x.cat, x.store], (x) => `${x.date || ""} ${fmt(x.amt, 2)} ${x.cur}`],
+  ["shop", "🛍 必買", (x) => [x.name, x.where, x.who, x.note], (x) => x.where || x.cat],
+  ["diary", "📔 日記", (x) => [x.text], (x) => x.date],
+  ["emerg", "🆘 緊急", (x) => [x.name, x.tel, x.note], (x) => x.tel],
+];
+function openSearch() {
+  const dlg = $("#dlg"), f = $("#dlgForm"); dlg.onclose = null;
+  f.innerHTML = `<input name="q" type="search" placeholder="搜尋景點、行程、訂位代號、花費、日記…" autocomplete="off"><div id="hits" style="margin-top:8px;min-height:120px"></div>
+    <div class="row" style="margin-top:10px"><span class="sp"></span><button value="cancel" formnovalidate>關閉</button></div>`;
+  const t = T(), q = f.elements.q;
+  q.oninput = () => {
+    const k = q.value.trim().toLowerCase();
+    if (!k) return ($("#hits").innerHTML = "");
+    const hits = [];
+    for (const [kind, label, fields, sub] of SEARCH) for (const x of t[kind] || []) if (fields(x).some((v) => String(v || "").toLowerCase().includes(k))) hits.push([kind, label, x, sub(x)]);
+    $("#hits").innerHTML = hits.length ? hits.slice(0, 50).map(([kind, label, x, sub]) => `<div class="hit" data-hit="${kind}:${x.id}"><span class="mut">${label}</span> <b>${esc(x.title || x.name || x.note || (x.text || "").slice(0, 30) || x.cat)}</b><div class="mut">${esc(sub || "")}</div></div>`).join("") : '<div class="empty">找不到</div>';
+  };
+  f.onclick = (e) => {
+    const h = e.target.closest("[data-hit]"); if (!h) return;
+    const [kind, id] = h.dataset.hit.split(":"), x = t[kind].find((y) => y.id === id);
+    dlg.close("cancel");
+    const tab = { itin: "itin", spots: "spots", books: "books", tickets: "tickets", exp: "exp", shop: "pack", diary: "itin", emerg: "fx" }[kind];
+    if (kind === "diary") { filt.iv = "日記"; goTab("itin"); return setTimeout(() => openDiary(t, x.date), 50); }
+    if (kind === "shop") filt.pk = "必買"; if (kind === "emerg") filt.tool = "緊急"; if (kind === "exp") filt.ex = "記帳"; if (kind === "itin") filt.iv = "清單";
+    goTab(tab); setTimeout(() => openForm(kind, x), 50);
+  };
+  dlg.showModal(); setTimeout(() => q.focus(), 50);
+}
+$("#searchBtn").onclick = openSearch;
 $("#fab").onclick = () => fabKind() && openForm(fabKind());
 $("#tripSel").onchange = (e) => {
   if (e.target.value === "__new") { const n = prompt("旅程名稱"); if (n) { const t = newTrip(n); S.trips.push(t); S.cur = t.id; save(); render(); openSettings(); } else render(); return; }
@@ -1669,7 +1730,10 @@ for (const t of S.trips) snap[t.id] = tripKey(t);
 for (const t of S.trips) t.mt ||= isBlank(t) ? 0 : 1;
 render();
 loadRates();
-if (FIREBASE_CONFIG) import("./sync.js").then((m) => m.start(FIREBASE_CONFIG)).catch(() => {});
+// 同步模組要網路才載得到; 離線開啟的話, 等恢復網路再載
+let syncLoaded = false;
+const loadSync = () => { if (!FIREBASE_CONFIG || syncLoaded) return; import("./sync.js").then((m) => { syncLoaded = true; m.start(FIREBASE_CONFIG); }).catch(() => {}); };
+loadSync(); addEventListener("online", loadSync);
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>
 </body>
