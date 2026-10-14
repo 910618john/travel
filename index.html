@@ -94,7 +94,7 @@ const today = () => new Date().toLocaleDateString("sv");
 
 function newTrip(name) {
   return { id: uid(), name: name || "新旅程", start: "", end: "", home: "TWD", cur: "JPY", people: ["我"], budget: 0, manualRate: 0,
-    itin: [], spots: [], books: [], tickets: [], exp: [], pack: [], emerg: [], phr: [], loc: null, wallet: [], prep: {} };
+    itin: [], spots: [], books: [], tickets: [], exp: [], pack: [], emerg: [], phr: [], loc: null, wallet: [], prep: {}, shop: [] };
 }
 let S;
 try { S = JSON.parse(localStorage.getItem(KEY)); } catch (e) { S = null; }
@@ -165,9 +165,11 @@ const EXP_CATS = ["餐飲", "交通", "住宿", "門票", "購物", "伴手禮",
 const SPOT_CATS = ["景點", "美食", "購物", "咖啡", "夜生活", "自然", "博物館", "其他"];
 const BOOK_TYPES = ["機票", "住宿", "交通", "租車", "保險", "其他"];
 const TK_CATS = ["機票", "住宿", "車票/交通卡", "門票", "餐廳預約", "保險/證件", "其他"];
+const SHOP_CATS = ["伴手禮", "藥妝", "零食", "電器", "衣服鞋包", "其他"];
 const MODES = [["🚶 步行", "walking"], ["🚃 電車/地鐵", "transit"], ["🚌 公車", "transit"], ["🚕 計程車", "driving"], ["🚗 開車", "driving"], ["✈️ 飛機", ""], ["⛴ 船", ""]];
 const SCHEMA = {
   itin: [["date", "日期", "date"], ["time", "時間", "time"], ["title", "活動", "text", 1], ["place", "地點(可貼Google地圖連結)", "text"], ["mode", "從上一個行程怎麼過去", "select", 0, ["", ...MODES.map((m) => m[0])]], ["note", "備註", "textarea"]],
+  shop: [["name", "要買什麼", "text", 1], ["cat", "分類", "select", 0, SHOP_CATS], ["where", "在哪買(店名/地點)", "text"], ["price", "預估價格", "number"], ["cur", "幣別", "cur"], ["qty", "數量", "number"], ["who", "送誰／自用", "text"], ["file", "商品照片(給店員看)", "file"], ["note", "備註", "textarea"]],
   wallet: [["date", "日期", "date"], ["amt", "換到的外幣金額(負數=調整減少)", "number", 1], ["cur", "幣別", "cur"], ["cost", "花了多少本國幣(選填，用來算實際匯率)", "number"], ["note", "備註(在哪換)", "text"]],
   spots: [["name", "名稱", "text", 1], ["cat", "分類", "select", 0, SPOT_CATS], ["city", "城市/區域", "text"], ["addr", "地址或地圖連結", "text"], ["hours", "營業時間", "text"], ["price", "門票/預算", "text"], ["prio", "優先", "select", 0, ["必去", "想去", "有空再去"]], ["note", "備註", "textarea"]],
   books: [["type", "類型", "select", 0, BOOK_TYPES], ["title", "名稱(航班號/飯店名)", "text", 1], ["from", "出發地/地址", "text"], ["to", "目的地", "text"], ["start", "開始(起飛/入住)", "datetime-local"], ["end", "結束(抵達/退房)", "datetime-local"], ["code", "訂位代號", "text"], ["seat", "座位/房型", "text"], ["price", "金額", "number"], ["cur", "幣別", "cur"], ["paid", "已付款", "check"], ["note", "備註", "textarea"]],
@@ -186,6 +188,7 @@ const DEFAULTS = {
   pack: () => ({ cat: "其他" }),
   emerg: () => ({}),
   wallet: () => ({ date: today(), cur: T().cur }),
+  shop: () => ({ cat: "伴手禮", cur: T().cur, qty: 1 }),
   phr: () => ({}),
 };
 
@@ -655,6 +658,32 @@ const PREP = {
   ID: [[["落地簽 e-VOA 可以先線上申請", "https://evisa.imigrasi.go.id/"], ["All Indonesia 入境申報"]], "C／F 型（雙圓孔）、230V", "Grab／Gojek 叫車"],
   EU: [[["申根區：台灣護照免簽，180 天內最多停留 90 天"], ["EES 出入境系統：第一次入境要留指紋、拍照，排隊可能較久"], ["ETIAS 旅行授權：出發前確認是否已經需要申請", "https://travel-europe.europa.eu/etias_en"]], "C／E／F 型（雙圓孔）、230V：要帶轉接頭（瑞士 J 型、義大利另有 L 型）", "各城市大眾運輸 App；跨國火車早點買比較便宜"],
 };
+// 行前注意事項(規定常變, 以官方為準)
+const NOTE_ALL = [
+  ["🔋 行動電源、備用鋰電池只能放隨身行李，不能托運；機上多半禁止使用或充電"],
+  ["💧 隨身液體每瓶 ≤ 100ml，全部裝進一個 1 公升透明夾鏈袋"],
+  ["🥩 回台灣：肉類、肉製品（含真空包、泡麵肉包）禁止帶入，違者重罰；新鮮水果、植物也不行"],
+  ["🧾 回台灣免稅額：酒 1 公升、菸 1 條（200 支），其他物品完稅價格 NT$20,000 以內"],
+  ["💵 現金超過等值 US$10,000 的外幣，或新台幣超過 10 萬元，入出境都要申報"],
+  ["💊 自用藥品帶原包裝或處方箋；常備藥分裝隨身"],
+];
+const NOTES = {
+  JP: ["含偽麻黃鹼的感冒藥、鼻炎藥可能被禁止帶入，帶藥前先查", "垃圾分類嚴格、路上垃圾桶很少，垃圾自己帶走", "很多地方路上禁菸，要在吸菸區抽", "電車上不講電話；手扶梯東京站左邊、大阪站右邊", "不用給小費"],
+  KR: ["有些餐廳一個人不能點、或要點 2 人份", "小菜吃完可以免費續（自助區自己拿）", "購物袋要另外付錢"],
+  TH: ["電子菸在泰國違法，帶入可能被罰款甚至拘留", "不可批評皇室（觸法）", "進寺廟、皇宮要遮肩膀和膝蓋，進殿脫鞋", "不要摸別人的頭"],
+  SG: ["口香糖禁止帶入販售", "地鐵、公車上禁止飲食，榴槤也不能帶上車", "亂丟垃圾、隨地吐痰會被罰款", "電子菸違法"],
+  HK: ["地鐵車廂內禁止飲食", "手扶梯站右邊、左邊讓人走"],
+  MO: ["賭場要滿 21 歲才能進"],
+  CN: ["部分網站／App 被擋（Google、LINE、IG…），先準備好替代方案", "政治敏感的書籍、刊物不要帶", "很多地方只收行動支付"],
+  US: ["入境不能帶肉類、新鮮蔬果，食物要誠實申報", "餐廳、計程車要給小費（餐廳 18~22%）", "標價不含銷售稅，結帳會再加"],
+  CA: ["食物要誠實申報", "餐廳要給小費 15~20%"],
+  GB: ["靠左行駛，過馬路先看右邊", "很多地方只收卡、不收現金"],
+  AU: ["生物安全檢疫非常嚴格：所有食物、藥品都要申報，沒申報會被重罰", "靠左行駛"],
+  NZ: ["生物安全檢疫非常嚴格：食物、戶外用品（沾泥的鞋）都要申報", "靠左行駛"],
+  VN: ["機車很多，過馬路慢慢走、不要突然停或跑", "叫車用 Grab，避免路邊喊價"],
+  TR: ["進清真寺女生要包頭巾、遮肩膝，脫鞋"],
+  EU: ["熱門景點、地鐵扒手很多（巴黎、羅馬、巴塞隆納），包包背前面", "很多國家週日商店休息", "餐廳的水通常要付費", "進教堂服裝要遮肩膝"],
+};
 function prepHtml(t) {
   const cc = ccOf(t), P = PREP[cc] || (EU_CC.includes(cc) ? PREP.EU : null);
   const items = [...(P ? P[0] : []), ...PREP_ALL.map((x) => [x])];
@@ -663,7 +692,15 @@ function prepHtml(t) {
   return `<h2>✈️ 出發前準備${name ? "（" + esc(name) + "）" : ""} ${done}/${items.length}</h2><div class="card">
     ${items.map(([x, url]) => `<div class="row ${t.prep[x] ? "done" : ""}" style="padding:4px 0;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:4px" data-act="prep" data-key="${esc(x)}" ${t.prep[x] ? "checked" : ""}><span class="sp">${esc(x)}${url ? ` <a href="${url}" target="_blank" rel="noopener">官網 ↗</a>` : ""}</span></div>`).join("")}
     ${P ? `<div style="margin-top:8px">🔌 <b>插座</b>：${esc(P[1])}</div><div>🚃 <b>交通</b>：${esc(P[2])}</div>` : `<div class="mut" style="margin-top:6px">到 ⚙︎ 設定目的地城市，會列出該國的入境手續、插座、交通卡</div>`}
-    <div class="mut" style="margin-top:6px">入境規定常變動，出發前請到官方網站確認。</div></div>`;
+    <div class="mut" style="margin-top:6px">入境規定常變動，出發前請到官方網站確認。</div></div>` + notesHtml(t);
+}
+function notesHtml(t) {
+  const cc = ccOf(t), local = NOTES[cc] || (EU_CC.includes(cc) ? NOTES.EU : []);
+  const name = (TAX[cc] || [])[0] || (t.loc && t.loc.country) || "";
+  return `<h2>⚠️ 行前注意事項</h2>
+    ${local.length ? `<div class="card"><h3>${esc(name)}</h3>${local.map((x) => `<div style="padding:3px 0">・${esc(x)}</div>`).join("")}</div>` : ""}
+    <div class="card"><h3>搭機與回台灣</h3>${NOTE_ALL.map(([x]) => `<div style="padding:3px 0">${esc(x)}</div>`).join("")}
+    <div class="mut" style="margin-top:6px">細節以航空公司、海關、防檢署公告為準。</div></div>`;
 }
 
 // ===== 確認信 → 訂位 =====
@@ -729,7 +766,7 @@ function openPaste() {
 }
 
 // ===== 畫面 =====
-const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["spots", "📍", "景點"], ["books", "✈️", "訂位"], ["tickets", "🎫", "票券"], ["exp", "💰", "花費"], ["fx", "🧰", "工具"], ["pack", "🧳", "清單"]];
+const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["spots", "📍", "景點"], ["books", "✈️", "訂位"], ["tickets", "🎫", "票券"], ["exp", "💰", "花費"], ["fx", "🧰", "工具"], ["pack", "📝", "清單"]];
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
 const dayName = (d) => d ? ["日", "一", "二", "三", "四", "五", "六"][new Date(d + "T00:00").getDay()] : "";
 const dt = (s) => s ? s.replace("T", " ") : "";
@@ -854,7 +891,11 @@ const V = {
       <input id="fxC" type="number" inputmode="decimal" step="any" value="1" style="margin-top:8px"><div class="big" id="fxCo" style="margin-top:6px"></div></div>` + fxHistHtml(t);
   },
   pack(t) {
-    const prep = prepHtml(t) + `<h2>🧳 行李</h2>`;
+    const sub = filt.pk || "必買";
+    const head = `<div class="chips">${["必買", "行李", "出發準備"].map((x) => `<button class="${x === sub ? "on" : ""}" data-f="pk" data-v="${x}">${{ 必買: "🛍", 行李: "🧳", 出發準備: "✈️" }[x]} ${x}</button>`).join("")}</div>`;
+    if (sub === "必買") return head + shopHtml(t);
+    if (sub === "出發準備") return head + prepHtml(t);
+    const prep = head;
     if (!t.pack.length) return prep + `<div class="empty">行李清單是空的<br><button data-act="packdef" style="margin-top:10px">載入常用清單</button></div>`;
     const by = {}; t.pack.forEach((p) => (by[p.cat] ||= []).push(p));
     const done = t.pack.filter((p) => p.ok).length;
@@ -926,8 +967,20 @@ function toolBind(t) {
     document.querySelectorAll("[data-tip]").forEach((b) => (b.onclick = () => { $("#tipP").value = b.dataset.tip; calc(); }));
   }
 }
-const fabKind = () => S.tab === "fx" ? { 外語: "phr", 緊急: "emerg" }[filt.tool] : SCHEMA[S.tab] ? S.tab : null;
+const fabKind = () => S.tab === "fx" ? { 外語: "phr", 緊急: "emerg" }[filt.tool] : S.tab === "pack" ? { 必買: "shop", 行李: "pack" }[filt.pk || "必買"] : SCHEMA[S.tab] ? S.tab : null;
 
+function shopHtml(t) {
+  if (!t.shop.length) return `<div class="empty">必買清單是空的，按 ＋ 新增<br>可以附商品照片，到店裡直接給店員看</div>`;
+  const left = t.shop.filter((x) => !x.ok), done = t.shop.length - left.length;
+  const est = (arr) => arr.reduce((s, x) => s + toHome((+x.price || 0) * (+x.qty || 1), x.cur), 0);
+  const byCat = {}; t.shop.forEach((x) => (byCat[x.cat] ||= []).push(x));
+  return `<div class="card"><div class="row"><span class="sp">已買 ${done}/${t.shop.length}</span><span class="mut">還沒買的預估 ${fmt(est(left))} ${t.home}</span></div><div class="bar"><i style="width:${(done / t.shop.length) * 100}%"></i></div></div>` +
+    Object.entries(byCat).map(([c, arr]) => `<h2>${esc(c)}</h2>` + arr.sort((a, b) => !!a.ok - !!b.ok).map((x) => `<div class="card ${x.ok ? "done" : ""}" data-edit="shop:${x.id}">
+      <div class="row"><input type="checkbox" style="width:auto" data-act="shoptog" data-id="${x.id}" ${x.ok ? "checked" : ""}><h3 class="sp" style="margin:0">${esc(x.name)}${+x.qty > 1 ? ` ×${x.qty}` : ""}</h3>${x.price ? `<b>${fmt(x.price, 2)} ${x.cur}</b>` : ""}</div>
+      <div class="mut">${[x.where && "📍 " + x.where, x.who && "🎁 " + x.who].filter(Boolean).map(esc).join("・")}${x.price && x.cur !== t.home ? `・≈ ${fmt(toHome(x.price * (+x.qty || 1), x.cur))} ${t.home}` : ""}</div>
+      ${x.note ? `<div class="mut" style="white-space:pre-wrap">${esc(x.note)}</div>` : ""}
+      <div class="row" style="margin-top:6px">${x.fileId ? `<button class="sm" data-act="fopen" data-k="shop" data-id="${x.id}">🖼 照片</button>` : ""}${x.ok ? "" : `<button class="sm pri" data-act="shopbuy" data-id="${x.id}">🛒 買了，記帳</button>`}</div></div>`).join("")).join("");
+}
 function itinCard(i) {
   return `<div class="card row" data-edit="itin:${i.id}" style="align-items:flex-start"><div class="time">${esc(i.time || "--:--")}</div>
     <div class="sp"><b>${esc(i.title)}</b>${i.place ? `<div>${mapLink(i.place)}</div>` : ""}${i.note ? `<div class="mut" style="white-space:pre-wrap">${esc(i.note)}</div>` : ""}</div></div>`;
@@ -1015,6 +1068,11 @@ document.addEventListener("click", async (e) => {
     else if (act === "fxreload") return loadRates(true);
     else if (act === "geoall") return geoAll(t);
     else if (act === "addwallet") return openForm("wallet");
+    else if (act === "shoptog") { const x = t.shop.find((y) => y.id === id); x.ok = el.checked; }
+    else if (act === "shopbuy") {
+      const x = t.shop.find((y) => y.id === id);
+      return openForm("exp", null, () => { x.ok = true; save(); render(); }, { cat: x.cat === "伴手禮" ? "伴手禮" : "購物", amt: (+x.price || 0) * (+x.qty || 1) || "", cur: x.cur || t.cur, note: x.name });
+    }
     else if (act === "walletlist") filt.wl = !filt.wl;
     else if (act === "paste") return openPaste();
     else if (act === "prep") { if (el.checked) t.prep[el.dataset.key] = 1; else delete t.prep[el.dataset.key]; }
@@ -1086,7 +1144,7 @@ function openSettings() {
     if (act === "theme") { const r = document.documentElement, d = matchMedia("(prefers-color-scheme: dark)").matches; const cur = r.dataset.theme || (d ? "dark" : "light"); r.dataset.theme = S.theme = cur === "dark" ? "light" : "dark"; save(); return; }
     if (act === "deltrip") {
       if (!confirm(`刪除「${t.name}」？無法復原`)) return;
-      [...t.tickets, ...t.exp].forEach((k) => { if (k.fileId) { fdel(k.fileId); window.TravelSync && TravelSync.delFile(t, k.fileId); } });
+      [...t.tickets, ...t.exp, ...t.shop].forEach((k) => { if (k.fileId) { fdel(k.fileId); window.TravelSync && TravelSync.delFile(t, k.fileId); } });
       S.trips = S.trips.filter((x) => x.id !== t.id);
       S.deleted[t.id] = Date.now(); delete snap[t.id];
       window.TravelSync && TravelSync.remove(t.id, S.deleted[t.id]);
@@ -1103,7 +1161,7 @@ function openSettings() {
       const me = TravelSync.user.toLowerCase();
       const list = fd.get("share").split(/[,，;\s]+/).map((x) => x.trim().toLowerCase()).filter((x) => /.+@.+\..+/.test(x));
       if (list.length || t.shared) {
-        if (!t.shared) [...t.tickets, ...t.exp].forEach((k) => k.fileId && delete S.upl[k.fileId]); // 檔案改傳到共享區
+        if (!t.shared) [...t.tickets, ...t.exp, ...t.shop].forEach((k) => k.fileId && delete S.upl[k.fileId]); // 檔案改傳到共享區
         t.shared = true; t.emails = [...new Set([me, ...list])];
         setTimeout(() => TravelApp.uploadPending(), 1500);
       }
@@ -1151,7 +1209,7 @@ window.TravelApp = {
   isBlank: (t) => isBlank(t),
   async uploadPending() {
     if (!window.TravelSync || !TravelSync.user) return;
-    for (const t of S.trips) for (const it of [...t.tickets, ...t.exp]) {
+    for (const t of S.trips) for (const it of [...t.tickets, ...t.exp, ...t.shop]) {
       if (!it.fileId || S.upl[it.fileId]) continue;
       const b = await fget(it.fileId); if (!b) continue;
       try { const r = await TravelSync.putFile(t, it.fileId, b); if (r) { S.upl[it.fileId] = r === true ? 1 : "big"; saveLocal(); } } catch (e) { }
