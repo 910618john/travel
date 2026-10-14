@@ -90,7 +90,14 @@ let S;
 try { S = JSON.parse(localStorage.getItem(KEY)); } catch (e) { S = null; }
 if (!S || !S.trips || !S.trips.length) { const t = newTrip("我的旅程"); S = { trips: [t], cur: t.id, tab: "home", rates: null }; }
 // 雲端同步: 填入 Firebase 設定後啟用(見 README), null = 只存本機
-const FIREBASE_CONFIG = null;
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDRSrNJZd5C3Nrz_mX8TaY65PKBSmz1Wbw",
+  authDomain: "travel-672ff.firebaseapp.com",
+  projectId: "travel-672ff",
+  storageBucket: "travel-672ff.firebasestorage.app",
+  messagingSenderId: "1000112370662",
+  appId: "1:1000112370662:web:bcb195ec1513d002e65c27",
+};
 S.deleted ||= {};
 // 每個旅程記最後修改時間 mt, 同步時以 mt 較新者為準
 const snap = {};
