@@ -73,6 +73,8 @@ body.off #offline{display:block}
 .conn{margin:-4px 0 6px 58px;font-size:calc(12px*var(--fz,1));color:var(--mut)}
 .handle{cursor:grab;touch-action:none;color:var(--mut);font-size:calc(18px*var(--fz,1));padding:0 6px 0 0;margin:-4px 0 -4px -4px;user-select:none;-webkit-user-select:none}
 .dragging .conn{display:none}
+.photos{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
+.photos img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;background:var(--line)}
 .dragcard{opacity:.9;box-shadow:0 8px 20px #0004;position:relative;z-index:3}
 #ctip{position:fixed;pointer-events:none;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:4px 8px;font-size:calc(12px*var(--fz,1));box-shadow:0 2px 8px #0003;display:none;z-index:30;white-space:nowrap}
 .phr{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
@@ -103,7 +105,7 @@ const today = () => new Date().toLocaleDateString("sv");
 
 function newTrip(name) {
   return { id: uid(), name: name || "新旅程", start: "", end: "", home: "TWD", cur: "JPY", people: ["我"], budget: 0, manualRate: 0,
-    itin: [], spots: [], books: [], tickets: [], exp: [], pack: [], emerg: [], phr: [], loc: null, wallet: [], prep: {}, shop: [] };
+    itin: [], spots: [], books: [], tickets: [], exp: [], pack: [], emerg: [], phr: [], loc: null, wallet: [], prep: {}, shop: [], diary: [] };
 }
 let S;
 try { S = JSON.parse(localStorage.getItem(KEY)); } catch (e) { S = null; }
@@ -260,7 +262,7 @@ function openForm(kind, item, after, pre) {
     }
     const hadDT = item ? item.date + item.time : "";
     // 地點改了就重新定位
-    if (item && ((kind === "itin" && item.place !== o.place) || (kind === "spots" && (item.addr !== o.addr || item.name !== o.name)))) { o.lat = o.lon = null; o.geoFail = false; }
+    if (item && ((kind === "itin" && item.place !== o.place) || (kind === "spots" && (item.addr !== o.addr || item.name !== o.name)) || (kind === "books" && (item.from !== o.from || item.title !== o.title)))) { o.lat = o.lon = null; o.geoFail = false; }
     if (isNew) { o.id = uid(); t[kind].push(o); } else Object.assign(item, o);
     if (kind === "itin") { const it = isNew ? o : item; if (isNew || hadDT !== it.date + it.time) placeByTime(t, it); }
     save(); render(); after && after(o);
@@ -336,7 +338,7 @@ async function geocode(q, t) {
 }
 const needGeo = (x) => x.lat == null && !x.geoFail;
 async function geoAll(t) {
-  const list = [...t.itin.map((i) => [i, i.place, i.title]), ...t.spots.map((s) => [s, s.addr, s.name + (s.city ? " " + s.city : "")])].filter(([x]) => needGeo(x));
+  const list = [...t.itin.map((i) => [i, i.place, i.title]), ...t.spots.map((s) => [s, s.addr, s.name + (s.city ? " " + s.city : "")]), ...hotels(t).map((h) => [h, h.from, h.title])].filter(([x]) => needGeo(x));
   if (!list.length) return alert("全部都定位過了");
   const btn = $("#geoBtn"); let n = 0, ok = 0;
   for (const [x, place, name] of list) {
@@ -370,7 +372,13 @@ async function initMap(t) {
       .addTo(m).bindPopup(`<b>${esc(i.time || "")} ${esc(i.title)}</b><br>${nav(i)}`);
     pts.push([i.lat, i.lon]);
   });
-  if (items.length > 1) L.polyline(pts, { color: "#0f766e", weight: 3, opacity: 0.7, dashArray: "6 6" }).addTo(m);
+  const hs = day === "全部景點" ? hotels(t) : [wakeHotel(t, day), sleepHotel(t, day)].filter((h, i, a) => h && a.indexOf(h) === i);
+  hs.filter((h) => h.lat != null).forEach((h) => {
+    L.marker([h.lat, h.lon], { icon: L.divIcon({ className: "", html: '<div class="pin" style="background:#7c3aed">🏨</div>', iconSize: [26, 26], iconAnchor: [13, 13] }) })
+      .addTo(m).bindPopup(`<b>🏨 ${esc(h.title)}</b><br>${dt(h.start)} ～ ${dt(h.end)}<br>${nav(h)}`);
+    pts.push([h.lat, h.lon]);
+  });
+  if (items.length > 1) L.polyline(pts.slice(0, items.length), { color: "#0f766e", weight: 3, opacity: 0.7, dashArray: "6 6" }).addTo(m);
   t.spots.filter((s) => s.lat != null).forEach((s) => {
     L.circleMarker([s.lat, s.lon], { radius: day === "全部景點" ? 8 : 5, color: s.done ? "#9ca3af" : s.prio === "必去" ? "#dc2626" : "#d97706", fillOpacity: 0.8 })
       .addTo(m).bindPopup(`<b>${esc(s.name)}</b><br>${esc(s.prio)}・${esc(s.cat)}<br>${nav(s)}`);
@@ -1016,6 +1024,100 @@ function receiptsCsv(t) {
   a.download = `${t.name}-${f}-收據.csv`; a.click();
 }
 
+// ===== 分帳 =====
+function settleCalc(t) {
+  const paid = Object.fromEntries(t.people.map((p) => [p, 0])), owe = { ...paid };
+  for (const e of t.exp) {
+    const v = toHome(e.amt, e.cur), sp = (e.split && e.split.length ? e.split : t.people).filter((p) => p in owe);
+    if (!sp.length || !isFinite(v)) continue;
+    if (e.payer in paid) paid[e.payer] += v;
+    sp.forEach((p) => (owe[p] += v / sp.length));
+  }
+  const bal = t.people.map((p) => [p, paid[p] - owe[p]]);
+  const pos = bal.filter(([, v]) => v > 0.5).sort((a, b) => b[1] - a[1]).map((x) => [...x]);
+  const neg = bal.filter(([, v]) => v < -0.5).sort((a, b) => a[1] - b[1]).map((x) => [...x]);
+  const tr = []; let i = 0, j = 0;
+  while (i < pos.length && j < neg.length) {
+    const m = Math.min(pos[i][1], -neg[j][1]);
+    tr.push([neg[j][0], pos[i][0], m]);
+    pos[i][1] -= m; neg[j][1] += m;
+    if (pos[i][1] < 0.5) i++; if (neg[j][1] > -0.5) j++;
+  }
+  return { paid, owe, tr };
+}
+function settleText(t) {
+  const { paid, owe, tr } = settleCalc(t), H = t.home;
+  return [`💰 ${t.name} 分帳`, "", ...t.people.map((p) => `${p}：付了 ${fmt(paid[p])}，應付 ${fmt(owe[p])}`), "",
+    tr.length ? "👉 轉帳：" : "✅ 已結清", ...tr.map(([a, b, m]) => `${a} → ${b}：${fmt(m)} ${H}`)].join("\n");
+}
+
+// ===== 住宿 =====
+const hotels = (t) => t.books.filter((b) => b.type === "住宿" && b.start);
+const sleepHotel = (t, d) => hotels(t).find((b) => b.start.slice(0, 10) <= d && d < (b.end || b.start).slice(0, 10)); // 當晚住哪
+const wakeHotel = (t, d) => hotels(t).find((b) => b.start.slice(0, 10) < d && d <= (b.end || b.start).slice(0, 10)); // 早上從哪出發
+const hotelPt = (h) => ({ lat: h.lat, lon: h.lon, place: h.from, title: h.title });
+function hotelConn(h, item, dir) {
+  const a = dir === "from" ? hotelPt(h) : item, b = dir === "from" ? item : hotelPt(h);
+  const d = distKm(a, b), url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(geoQ(a))}&destination=${encodeURIComponent(geoQ(b))}&travelmode=transit`;
+  return `<div class="conn" style="margin-left:0">🏨 ${dir === "from" ? "從" : "回"} <b>${esc(h.title)}</b>${d != null ? `・直線 ${d < 1 ? Math.round(d * 1000) + " m" : fmt(d, 1) + " km"}` : ""}・<a href="${url}" target="_blank" rel="noopener">查路線 ↗</a></div>`;
+}
+
+// ===== 旅行日記 =====
+function diaryDays(t) {
+  const set = new Set([...tripDays(t), ...t.itin.map((i) => i.date), ...t.diary.map((d) => d.date)].filter(Boolean));
+  return [...set].sort();
+}
+function diaryHtml(t) {
+  const days = diaryDays(t);
+  if (!days.length) return `<div class="empty">到 ⚙︎ 設定旅程日期，就能每天寫日記</div>`;
+  const startD = t.start ? new Date(t.start + "T00:00") : null;
+  return `<div class="row noprint" style="margin-bottom:8px"><span class="sp mut">每天寫幾句、放幾張照片，回來就是遊記</span><button class="sm" data-act="print">列印／存 PDF</button></div>
+    <h2 class="printonly" style="display:none">${esc(t.name)} 旅行日記</h2>` +
+    days.map((d) => {
+      const e = t.diary.find((x) => x.date === d), n = startD ? Math.round((new Date(d + "T00:00") - startD) / 864e5) + 1 : null;
+      const its = t.itin.filter((i) => i.date === d).sort(byOrd).map((i) => i.title);
+      const spent = t.exp.filter((x) => x.date === d).reduce((s, x) => s + (toHome(x.amt, x.cur) || 0), 0);
+      return `<div class="card" style="break-inside:avoid"><div class="row"><h3 class="sp">${n > 0 ? `Day ${n}・` : ""}${d} (${dayName(d)})</h3><span class="wx">${wxTxt(wxOf(t, d))}</span><button class="sm noprint" data-act="diary" data-d="${d}">✏️ ${e ? "編輯" : "寫日記"}</button></div>
+        ${its.length || spent ? `<div class="mut">${its.length ? "📍 " + its.map(esc).join(" → ") : ""}${spent ? `${its.length ? "<br>" : ""}💰 ${fmt(spent)} ${t.home}` : ""}</div>` : ""}
+        ${e && e.text ? `<div style="white-space:pre-wrap;margin-top:6px">${esc(e.text)}</div>` : ""}
+        ${e && e.photos.length ? `<div class="photos">${e.photos.map((p) => `<img data-fid="${p.fileId}" alt="">`).join("")}</div>` : ""}</div>`;
+    }).join("");
+}
+function openDiary(t, d) {
+  let e = t.diary.find((x) => x.date === d);
+  const photos = e ? [...e.photos] : [];
+  const dlg = $("#dlg"), f = $("#dlgForm");
+  let text = e ? e.text : "";
+  const draw = () => {
+    f.innerHTML = `<h3>📔 ${d} (${dayName(d)})</h3>
+      <textarea name="text" style="min-height:160px" placeholder="今天去了哪、吃了什麼、印象最深的事…">${esc(text)}</textarea>
+      <label>照片（可一次選多張）</label><input type="file" name="ph" accept="image/*" multiple>
+      <div class="photos">${photos.map((p, i) => `<div style="position:relative"><img data-fid="${p.fileId}" alt=""><button type="button" class="sm del" data-rmph="${i}" style="position:absolute;top:2px;right:2px;padding:0 6px">✕</button></div>`).join("")}</div>
+      <div class="row" style="margin-top:14px">${e ? '<button value="del" class="del">刪除</button>' : ""}<span class="sp"></span><button value="cancel" formnovalidate>取消</button><button value="ok" class="pri">儲存</button></div>`;
+    fillThumbs();
+    f.elements.text.oninput = (ev) => (text = ev.target.value);
+    f.querySelectorAll("[data-rmph]").forEach((b) => (b.onclick = () => { photos.splice(+b.dataset.rmph, 1); draw(); }));
+    f.elements.ph.onchange = async (ev) => {
+      for (const file of ev.target.files) photos.push(await storeFile(t, file));
+      draw();
+    };
+  };
+  draw();
+  dlg.onclose = () => {
+    const act = dlg.returnValue; dlg.returnValue = "";
+    const old = e ? e.photos : [];
+    const drop = (keep) => [...old, ...photos].filter((p, i, a) => a.indexOf(p) === i && !keep.includes(p)).forEach((p) => { fdel(p.fileId); window.TravelSync && TravelSync.delFile(t, p.fileId); });
+    if (act === "del") { if (!confirm("刪除這天的日記？")) return; drop([]); t.diary = t.diary.filter((x) => x !== e); save(); render(); return; }
+    if (act !== "ok") { drop(old); return; } // 取消: 丟掉這次新加的照片
+    const text = (new FormData(f).get("text") || "").trim();
+    drop(photos);
+    if (!e) { e = { id: uid(), date: d }; t.diary.push(e); }
+    e.text = text; e.photos = photos;
+    save(); render();
+  };
+  dlg.showModal();
+}
+
 // ===== 畫面 =====
 const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["spots", "📍", "景點"], ["books", "✈️", "訂位"], ["tickets", "🎫", "票券"], ["exp", "💰", "花費"], ["fx", "🧰", "工具"], ["pack", "📝", "清單"]];
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
@@ -1057,17 +1159,18 @@ const V = {
   },
   itin(t) {
     const mode = filt.iv || "清單";
-    let h = `<div class="row noprint" style="margin-bottom:8px"><div class="chips" style="margin:0">${["清單", "地圖"].map((m) => `<button class="${m === mode ? "on" : ""}" data-f="iv" data-v="${m}">${m === "清單" ? "📋" : "🗺"} ${m}</button>`).join("")}</div><span class="sp"></span>
+    let h = `<div class="row noprint" style="margin-bottom:8px"><div class="chips" style="margin:0">${["清單", "地圖", "日記"].map((m) => `<button class="${m === mode ? "on" : ""}" data-f="iv" data-v="${m}">${{ 清單: "📋", 地圖: "🗺", 日記: "📔" }[m]} ${m}</button>`).join("")}</div><span class="sp"></span>
       ${mode === "清單" ? '<button class="sm" data-act="share">分享</button><button class="sm" data-act="print">列印/PDF</button>' : ""}</div>`;
+    if (mode === "日記") return h + diaryHtml(t);
     if (mode === "地圖") {
       const dates = [...new Set(t.itin.map((i) => i.date).filter(Boolean))].sort();
       if (!filt.md || (filt.md !== "全部景點" && !dates.includes(filt.md))) filt.md = dates.includes(today()) ? today() : dates[0] || "全部景點";
-      const miss = [...t.itin, ...t.spots].filter(needGeo).length;
-      const fail = [...t.itin, ...t.spots].filter((x) => x.geoFail).length;
+      const miss = [...t.itin, ...t.spots, ...hotels(t)].filter(needGeo).length;
+      const fail = [...t.itin, ...t.spots, ...hotels(t)].filter((x) => x.geoFail).length;
       return h + `<div class="chips">${[...dates, "全部景點"].map((d) => `<button class="${d === filt.md ? "on" : ""}" data-f="md" data-v="${d}">${d === "全部景點" ? "📍 全部景點" : d.slice(5) + "(" + dayName(d) + ")"}</button>`).join("")}</div>
         <div id="map"></div>
         <div class="row" style="margin-top:6px"><button class="sm" data-act="premap" id="preBtn">🗺 出發前預存地圖</button><span class="mut sp">有網路時自動逐日看一遍，看過的區域離線也能看</span></div>
-        <div class="row" style="margin-top:8px"><span class="mut sp">數字＝當天行程順序・橘／紅點＝景點（紅＝必去）${fail ? `・${fail} 個找不到位置` : ""}</span>${miss ? `<button class="sm pri" id="geoBtn" data-act="geoall">📍 定位 ${miss} 個地點</button>` : ""}</div>`;
+        <div class="row" style="margin-top:8px"><span class="mut sp">數字＝當天行程順序・🏨＝住宿・橘／紅點＝景點（紅＝必去）${fail ? `・${fail} 個找不到位置` : ""}</span>${miss ? `<button class="sm pri" id="geoBtn" data-act="geoall">📍 定位 ${miss} 個地點</button>` : ""}</div>`;
     }
     if (!t.itin.length) return h + `<div class="empty">還沒有行程，按 ＋ 新增<br>或到「景點」把想去的加進來</div>`;
     const by = {};
@@ -1076,7 +1179,8 @@ const V = {
     return h + `<h2 style="display:none" class="printonly">${esc(t.name)}</h2>` + Object.keys(by).sort().map((d) => {
       const n = startD && d !== "未定" ? Math.round((new Date(d + "T00:00") - startD) / 864e5) + 1 : null;
       return `<div class="daybar">${n ? `Day ${n}・` : ""}${d} ${dayName(d) ? "(" + dayName(d) + ")" : ""} <span class="wx">${wxTxt(wxOf(t, d))}</span></div><div class="dayitems">` +
-        by[d].sort(byOrd).map((i, n, arr) => (n ? connHtml(arr[n - 1], i) : "") + itinCard(i, arr.length > 1)).join("") + "</div>";
+        (() => { const arr = by[d].sort(byOrd), wh = d !== "未定" && wakeHotel(t, d), sh = d !== "未定" && sleepHotel(t, d);
+          return (wh ? hotelConn(wh, arr[0], "from") : "") + arr.map((i, n) => (n ? connHtml(arr[n - 1], i) : "") + itinCard(i, arr.length > 1)).join("") + "</div>" + (sh ? hotelConn(sh, arr[arr.length - 1], "to") : ""); })();
     }).join("");
   },
   spots(t) {
@@ -1256,24 +1360,10 @@ function tkCard(k) {
     <div class="row" style="margin-top:6px">${k.fileId ? `<button class="sm pri" data-act="tkopen" data-id="${k.id}">開啟 ${esc(k.fileName)}</button>` : ""}<button class="sm" data-act="tkused" data-id="${k.id}">${k.used ? "標為未使用" : "✓ 已使用"}</button></div></div>`;
 }
 function settle(t) {
-  const bal = Object.fromEntries(t.people.map((p) => [p, 0]));
-  for (const e of t.exp) {
-    const v = toHome(e.amt, e.cur), sp = (e.split && e.split.length ? e.split : t.people).filter((p) => p in bal);
-    if (!sp.length || !isFinite(v)) continue;
-    if (e.payer in bal) bal[e.payer] += v;
-    sp.forEach((p) => (bal[p] -= v / sp.length));
-  }
-  const pos = Object.entries(bal).filter(([, v]) => v > 0.5).sort((a, b) => b[1] - a[1]);
-  const neg = Object.entries(bal).filter(([, v]) => v < -0.5).sort((a, b) => a[1] - b[1]);
-  const out = [];
-  let i = 0, j = 0;
-  while (i < pos.length && j < neg.length) {
-    const m = Math.min(pos[i][1], -neg[j][1]);
-    out.push(`${esc(neg[j][0])} → ${esc(pos[i][0])}：<b>${fmt(m)}</b> ${t.home}`);
-    pos[i][1] -= m; neg[j][1] += m;
-    if (pos[i][1] < 0.5) i++; if (neg[j][1] > -0.5) j++;
-  }
-  return `<div class="card"><h3>分帳結算</h3>${out.length ? out.map((x) => `<div>${x}</div>`).join("") : '<div class="mut">已結清</div>'}</div>`;
+  const { paid, owe, tr } = settleCalc(t);
+  return `<div class="card"><div class="row"><h3 class="sp">分帳結算</h3><button class="sm" data-act="settleshare">傳給大家</button></div>
+    <table>${t.people.map((p) => `<tr><td>${esc(p)}</td><td class="r mut">付了 ${fmt(paid[p])}</td><td class="r mut">應付 ${fmt(owe[p])}</td></tr>`).join("")}</table>
+    <div style="margin-top:6px">${tr.length ? tr.map(([a, b, m]) => `<div>👉 ${esc(a)} → ${esc(b)}：<b>${fmt(m)}</b> ${t.home}</div>`).join("") : '<div class="mut">✅ 已結清</div>'}</div></div>`;
 }
 
 function render() {
@@ -1284,7 +1374,7 @@ function render() {
   $("#fab").style.display = fabKind() ? "" : "none";
   if (S.tab === "fx") toolBind(t);
   if (S.tab === "itin" && filt.iv === "地圖") initMap(t);
-  if (S.tab === "exp" && filt.ex === "收據整理") fillThumbs();
+  if ((S.tab === "exp" && filt.ex === "收據整理") || (S.tab === "itin" && filt.iv === "日記")) fillThumbs();
   if (S.tab === "exp" && $("#ocrIn")) $("#ocrIn").onchange = (e) => { const f = e.target.files[0]; if (f) doOcr(f).catch((err) => alert("失敗：" + err.message)); };
   loadWx(t);
 }
@@ -1326,6 +1416,12 @@ document.addEventListener("click", async (e) => {
     else if (act === "fxreload") return loadRates(true);
     else if (act === "geoall") return geoAll(t);
     else if (act === "premap") return preMap(t);
+    else if (act === "diary") return openDiary(t, el.dataset.d);
+    else if (act === "settleshare") {
+      const txt = settleText(t);
+      if (navigator.share) return navigator.share({ title: t.name + " 分帳", text: txt }).catch(() => {});
+      return navigator.clipboard.writeText(txt).then(() => alert("已複製，可以貼到 LINE 群組"), () => prompt("複製下面文字", txt));
+    }
     else if (act === "rtf" || act === "rclaim") { const x = t.exp.find((y) => y.id === id), k = act === "rtf" ? "tf" : "claim"; x[k] = !x[k]; }
     else if (act === "rcsv") return receiptsCsv(t);
     else if (act === "rprint") return window.print();
@@ -1442,7 +1538,7 @@ function openSettings() {
 
     if (act === "deltrip") {
       if (!confirm(`刪除「${t.name}」？無法復原`)) return;
-      [...t.tickets, ...t.exp, ...t.shop].forEach((k) => { if (k.fileId) { fdel(k.fileId); window.TravelSync && TravelSync.delFile(t, k.fileId); } });
+      [...t.tickets, ...t.exp, ...t.shop, ...t.diary.flatMap((d) => d.photos)].forEach((k) => { if (k.fileId) { fdel(k.fileId); window.TravelSync && TravelSync.delFile(t, k.fileId); } });
       S.trips = S.trips.filter((x) => x.id !== t.id);
       S.deleted[t.id] = Date.now(); delete snap[t.id];
       window.TravelSync && TravelSync.remove(t.id, S.deleted[t.id]);
@@ -1460,7 +1556,7 @@ function openSettings() {
       const me = TravelSync.user.toLowerCase();
       const list = fd.get("share").split(/[,，;\s]+/).map((x) => x.trim().toLowerCase()).filter((x) => /.+@.+\..+/.test(x));
       if (list.length || t.shared) {
-        if (!t.shared) [...t.tickets, ...t.exp, ...t.shop].forEach((k) => k.fileId && delete S.upl[k.fileId]); // 檔案改傳到共享區
+        if (!t.shared) [...t.tickets, ...t.exp, ...t.shop, ...t.diary.flatMap((d) => d.photos)].forEach((k) => k.fileId && delete S.upl[k.fileId]); // 檔案改傳到共享區
         t.shared = true; t.emails = [...new Set([me, ...list])];
         setTimeout(() => TravelApp.uploadPending(), 1500);
       }
@@ -1530,7 +1626,7 @@ window.TravelApp = {
   isBlank: (t) => isBlank(t),
   async uploadPending() {
     if (!window.TravelSync || !TravelSync.user) return;
-    for (const t of S.trips) for (const it of [...t.tickets, ...t.exp, ...t.shop]) {
+    for (const t of S.trips) for (const it of [...t.tickets, ...t.exp, ...t.shop, ...t.diary.flatMap((d) => d.photos)]) {
       if (!it.fileId || S.upl[it.fileId]) continue;
       const b = await fget(it.fileId); if (!b) continue;
       try { const r = await TravelSync.putFile(t, it.fileId, b); if (r) { S.upl[it.fileId] = r === true ? 1 : "big"; saveLocal(); } } catch (e) { }
