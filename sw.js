@@ -1,5 +1,5 @@
 // 旅行手帳離線快取: 同源檔案用 network-first(有網路就拿最新版, 沒網路才用快取), 匯率API等外部請求不攔
-const CACHE = "travel-v8";
+const CACHE = "travel-v9";
 const ROOT = new URL("./", self.location).href;
 const ASSETS = ["./", "manifest.json", "icon-192.png", "icon-512.png", "apple-touch-icon.png", "sync.js"];
 
