@@ -185,6 +185,7 @@ const EXP_CATS = ["餐飲", "交通", "住宿", "門票", "購物", "伴手禮",
 const SPOT_CATS = ["景點", "美食", "購物", "咖啡", "夜生活", "自然", "博物館", "其他"];
 const BOOK_TYPES = ["機票", "住宿", "交通", "租車", "保險", "其他"];
 const TK_CATS = ["機票", "住宿", "車票/交通卡", "門票", "餐廳預約", "保險/證件", "其他"];
+const BAGS = ["托運", "隨身", "身上"];
 const SHOP_CATS = ["伴手禮", "藥妝", "零食", "電器", "衣服鞋包", "其他"];
 // 同一天行程的順序: 拖拉過就用 ord, 沒排過照時間
 const byOrd = (a, b) => (a.ord ?? 1e9) - (b.ord ?? 1e9) || (a.time || "99").localeCompare(b.time || "99");
@@ -213,7 +214,7 @@ const SCHEMA = {
   exp: [["date", "日期", "date"], ["cat", "分類", "select", 0, EXP_CATS], ["amt", "金額", "number", 1], ["cur", "幣別", "cur"], ["note", "項目", "text"], ["store", "店家(退稅／報帳用，選填)", "text"], ["payer", "誰付", "payer"], ["split", "分攤", "split"], ["pay", "付款方式", "select", 0, ["現金", "信用卡", "交通卡", "行動支付"]], ["file", "收據照片", "file"], ["tf", "可退稅", "check"], ["claim", "要報帳", "check"]],
   emerg: [["name", "名稱(保險/信用卡/飯店/駐外館處…)", "text", 1], ["tel", "電話", "tel"], ["note", "備註(保單號、卡號末四碼…)", "textarea"]],
   phr: [["text", "要給對方看的句子(外文)", "textarea", 1], ["zh", "中文意思", "text"]],
-  pack: [["name", "物品", "text", 1], ["cat", "分類", "select", 0, ["證件", "衣物", "電子", "盥洗", "藥品", "其他"]]],
+  pack: [["name", "物品", "text", 1], ["cat", "分類", "select", 0, ["證件", "衣物", "電子", "盥洗", "藥品", "其他"]], ["qty", "數量", "number"], ["bag", "放哪裡", "select", 0, BAGS], ["note", "備註", "text"]],
 };
 const DEFAULTS = {
   itin: () => ({ date: T().start || today() }),
@@ -221,7 +222,7 @@ const DEFAULTS = {
   books: () => ({ type: "機票", cur: T().home }),
   spots: () => ({ cat: "景點", prio: "想去" }),
   tickets: () => ({ cat: "門票" }),
-  pack: () => ({ cat: "其他" }),
+  pack: () => ({ cat: "其他", bag: "托運", qty: 1 }),
   emerg: () => ({}),
   wallet: () => ({ date: today(), cur: T().cur }),
   shop: () => ({ cat: "伴手禮", cur: T().cur, qty: 1 }),
@@ -1132,12 +1133,91 @@ function openDiary(t, d) {
   dlg.showModal();
 }
 
+// ===== 行前行李整理 =====
+const PACK_STYLES = {
+  海島: [["泳衣", "衣物", "托運"], ["拖鞋", "衣物", "托運"], ["太陽眼鏡", "其他", "隨身"], ["帽子", "衣物", "身上"], ["防水手機袋", "電子", "托運"], ["防曬乳", "盥洗", "托運"]],
+  寒冷: [["發熱衣", "衣物", "托運", "half"], ["羽絨外套", "衣物", "身上"], ["手套", "衣物", "隨身"], ["圍巾", "衣物", "隨身"], ["毛帽", "衣物", "托運"], ["暖暖包", "其他", "托運"], ["護唇膏", "盥洗", "隨身"], ["保濕乳液", "盥洗", "托運"]],
+  商務: [["正式服裝", "衣物", "托運"], ["皮鞋", "衣物", "托運"], ["名片", "證件", "隨身"], ["筆電＋充電器", "電子", "隨身"]],
+  運動登山: [["運動鞋", "衣物", "身上"], ["排汗衣", "衣物", "托運", "half"], ["頭燈", "電子", "托運"], ["水壺", "其他", "隨身"], ["防蚊液", "盥洗", "托運"]],
+  帶小孩: [["兒童藥品", "藥品", "隨身"], ["小孩換洗衣物", "衣物", "托運", "days"], ["濕紙巾", "其他", "隨身"], ["零食", "其他", "隨身"], ["平板／玩具", "電子", "隨身"]],
+};
+function packContext(t) {
+  const days = tripDays(t).length || 5, c = S.wx[wxKey(t)];
+  const ws = c ? (tripDays(t).map((d) => c.d[d]).filter(Boolean).length ? tripDays(t).map((d) => c.d[d]).filter(Boolean) : Object.values(c.d)) : [];
+  const lo = ws.length ? Math.min(...ws.map((w) => w[2])) : null, hi = ws.length ? Math.max(...ws.map((w) => w[1])) : null;
+  const rain = ws.some((w) => w[3] >= 50), cc = ccOf(t);
+  const plug = !["JP", "US", "CA", "MX", "TW", "PH"].includes(cc) && !!cc;
+  const car = t.books.some((b) => b.type === "租車");
+  return { days, lo, hi, rain, plug, car, cc };
+}
+function packGenerate(t, styles) {
+  const x = packContext(t), N = Math.min(x.days, 7), half = Math.max(1, Math.ceil(N / 2));
+  const L = [
+    ["護照", "證件", "身上"], ["電子機票／登機證", "證件", "身上"], ["入境資料 QR Code（截圖）", "證件", "身上"], ["信用卡（帶 2 張不同卡）", "證件", "身上"], ["外幣現金", "證件", "身上"], ["台幣（回國交通用）", "證件", "身上"], ["旅平險資料", "證件", "隨身"],
+    ["上衣", "衣物", "托運", N], ["褲子", "衣物", "托運", half], ["內衣褲", "衣物", "托運", N], ["襪子", "衣物", "托運", N], ["睡衣", "衣物", "托運"], ["好走的鞋", "衣物", "身上"],
+    ["手機充電器＋線", "電子", "隨身"], ["行動電源", "電子", "隨身"], ["耳機", "電子", "隨身"], ["網卡／eSIM", "電子", "隨身"],
+    ["牙刷牙膏", "盥洗", "托運"], ["洗面乳", "盥洗", "托運"], ["保養品", "盥洗", "托運"], ["刮鬍刀", "盥洗", "托運"], ["眼鏡／隱形眼鏡", "盥洗", "隨身"],
+    ["常備藥", "藥品", "隨身"], ["腸胃藥", "藥品", "隨身"], ["OK 繃", "藥品", "隨身"],
+    ["摺疊傘", "其他", "隨身"], ["購物袋", "其他", "托運"], ["透明夾鏈袋（裝液體）", "其他", "隨身"], ["筆（填表用）", "其他", "隨身"], ["頸枕", "其他", "隨身"],
+  ];
+  if (x.plug) L.push(["轉接頭", "電子", "隨身"]);
+  if (x.car) L.push(["國際駕照＋台灣駕照", "證件", "身上"]);
+  if (x.lo != null && x.lo <= 12) L.push(["保暖外套", "衣物", "身上"]);
+  if (x.lo != null && x.lo <= 5 && !styles.includes("寒冷")) L.push(["手套", "衣物", "隨身"], ["圍巾", "衣物", "隨身"], ["發熱衣", "衣物", "托運", half]);
+  if (x.hi != null && x.hi >= 27) L.push(["防曬乳", "盥洗", "托運"], ["太陽眼鏡", "其他", "隨身"]);
+  if (x.rain) L.push(["雨衣／防水外套", "衣物", "托運"]);
+  for (const s of styles) for (const [n, c, b, q] of PACK_STYLES[s]) L.push([n, c, b, q === "half" ? half : q === "days" ? N : q]);
+  const have = new Set(t.pack.map((p) => p.name));
+  const add = L.filter(([n]) => !have.has(n) && (have.add(n), true)).map(([name, cat, bag, qty]) => ({ id: uid(), name, cat, bag, qty: qty || 1 }));
+  t.pack.push(...add);
+  return add.length;
+}
+function packWarn(p) {
+  const n = p.name || "";
+  if (p.bag === "托運" && /行動電源|鋰電池|電子菸|打火機|備用電池/.test(n)) return "⚠️ 只能放隨身";
+  if (p.bag === "隨身" && /刀|剪刀|噴霧/.test(n) && !/刮鬍刀/.test(n)) return "⚠️ 要托運";
+  if (p.bag === "隨身" && /乳|液|洗髮|沐浴|化妝水|香水|牙膏|防曬|精華|卸妝|髮膠|水$/.test(n) && !/袋|盒|瓶子|壺/.test(n)) return "💧 每瓶 ≤100ml";
+  return "";
+}
+function openPackGen(t) {
+  const x = packContext(t), dlg = $("#dlg"), f = $("#dlgForm");
+  f.innerHTML = `<h3>🧳 依這趟自動產生行李清單</h3>
+    <div class="card" style="margin-top:8px">${x.days} 天${t.loc ? "・" + esc(t.loc.name) : ""}${x.lo != null ? `・氣溫 ${x.lo}~${x.hi}°` : "・（設定目的地＋出發前 16 天內會依天氣調整）"}${x.rain ? "・可能下雨" : ""}${x.plug ? "・需要轉接頭" : ""}${x.car ? "・有租車" : ""}</div>
+    <label>這趟還有（可複選）</label><div class="row">${Object.keys(PACK_STYLES).map((s) => `<label style="margin:0"><input type="checkbox" name="st" value="${s}" style="width:auto"> ${s}</label>`).join("")}</div>
+    <div class="mut" style="margin-top:8px">會依天數算衣服數量（超過 7 天以 7 天計，可以洗衣服）；已經有的項目不會重複加。</div>
+    <div class="row" style="margin-top:14px"><span class="sp"></span><button value="cancel" formnovalidate>取消</button><button value="gen" class="pri">產生</button></div>`;
+  dlg.onclose = () => {
+    const act = dlg.returnValue; dlg.returnValue = "";
+    if (act !== "gen") return;
+    const n = packGenerate(t, new FormData(f).getAll("st"));
+    save(); render(); toast(`加入 ${n} 項`);
+  };
+  dlg.showModal();
+}
+function packHtml(t) {
+  const back = (filt.pm || "去程") === "回程", k = back ? "ok2" : "ok", byBag = (filt.pg || "依分類") === "依行李";
+  const w = (t.bagw ||= {});
+  const wIn = (key, lim, label) => `<div><label>${label}（kg）</label><div class="row" style="flex-wrap:nowrap"><input type="number" step="0.1" inputmode="decimal" data-bw="${key}" value="${w[key] || ""}" placeholder="重量" style="${w[key] > w[lim] ? "border-color:var(--red);color:var(--red)" : ""}"><span class="mut">/</span><input type="number" step="0.5" inputmode="decimal" data-bw="${lim}" value="${w[lim] || ""}" placeholder="限重" style="width:72px"></div></div>`;
+  let h = `<div class="row" style="margin-bottom:8px"><button class="sm pri" data-act="packgen">🧠 依這趟自動產生</button><span class="sp"></span>
+    <div class="chips" style="margin:0">${["去程", "回程"].map((m) => `<button class="${m === (filt.pm || "去程") ? "on" : ""}" data-f="pm" data-v="${m}">${m}</button>`).join("")}</div></div>`;
+  if (!t.pack.length) return h + `<div class="empty">行李清單是空的<br>按「依這趟自動產生」，會依天數、天氣、目的地幫你列好<br>或按 ＋ 自己加</div>`;
+  const done = t.pack.filter((p) => p[k]).length, warns = t.pack.filter((p) => packWarn(p).startsWith("⚠️")).length;
+  h += `<div class="card"><div class="row"><span class="sp">${back ? "回程" : "去程"}已打包 <b>${done}/${t.pack.length}</b>${warns ? `・<span style="color:var(--red)">${warns} 項要注意</span>` : ""}</span><button class="sm" data-act="packreset">全部取消勾選</button></div><div class="bar"><i style="width:${(done / t.pack.length) * 100}%"></i></div>
+    <div class="grid2" style="margin-top:6px">${wIn("chk", "chkLim", "托運")}${wIn("cab", "cabLim", "隨身")}</div>
+    ${(w.chk > w.chkLim && w.chkLim) || (w.cab > w.cabLim && w.cabLim) ? '<div style="color:var(--red);margin-top:4px">⚠️ 超重了，機場會加收費用</div>' : ""}</div>
+    <div class="chips">${["依分類", "依行李"].map((m) => `<button class="${m === (filt.pg || "依分類") ? "on" : ""}" data-f="pg" data-v="${m}">${m}</button>`).join("")}</div>`;
+  const grp = {}; t.pack.forEach((p) => (grp[byBag ? p.bag || "未分" : p.cat] ||= []).push(p));
+  const order = byBag ? [...BAGS, "未分"] : Object.keys(grp);
+  return h + order.filter((g) => grp[g]).map((g) => `<h2>${esc(g)} <span class="mut" style="font-weight:400">${grp[g].filter((p) => p[k]).length}/${grp[g].length}</span></h2><div class="card">${grp[g].sort((a, b) => !!a[k] - !!b[k]).map((p) => { const wn = packWarn(p);
+    return `<div class="row ${p[k] ? "done" : ""}" style="padding:5px 0"><input type="checkbox" style="width:auto;width:20px;height:20px" data-act="packtog" data-id="${p.id}" ${p[k] ? "checked" : ""}><span class="sp" data-edit="pack:${p.id}">${esc(p.name)}${+p.qty > 1 ? ` <b>×${p.qty}</b>` : ""}${wn ? ` <span class="tag" style="${wn.startsWith("⚠️") ? "background:var(--red);color:#fff" : ""}">${wn}</span>` : ""}${p.note ? `<div class="mut">${esc(p.note)}</div>` : ""}</span><span class="mut" style="font-size:calc(12px*var(--fz,1))">${esc(byBag ? p.cat : p.bag || "")}</span></div>`; }).join("")}</div>`).join("");
+}
+
 // ===== 畫面 =====
 const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["spots", "📍", "景點"], ["books", "✈️", "訂位"], ["tickets", "🎫", "票券"], ["exp", "💰", "花費"], ["fx", "🧰", "工具"], ["pack", "📝", "清單"]];
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
 const dayName = (d) => d ? ["日", "一", "二", "三", "四", "五", "六"][new Date(d + "T00:00").getDay()] : "";
 const dt = (s) => s ? s.replace("T", " ") : "";
-const UI_KEYS = ["iv", "tool", "pk", "ex"];
+const UI_KEYS = ["iv", "tool", "pk", "ex", "pm", "pg"];
 let filt = { ...(S.ui || {}) };
 
 function chips(key, list) {
@@ -1280,12 +1360,7 @@ const V = {
     const head = `<div class="chips">${["必買", "行李", "出發準備"].map((x) => `<button class="${x === sub ? "on" : ""}" data-f="pk" data-v="${x}">${{ 必買: "🛍", 行李: "🧳", 出發準備: "✈️" }[x]} ${x}</button>`).join("")}</div>`;
     if (sub === "必買") return head + shopHtml(t);
     if (sub === "出發準備") return head + prepHtml(t);
-    const prep = head;
-    if (!t.pack.length) return prep + `<div class="empty">行李清單是空的<br><button data-act="packdef" style="margin-top:10px">載入常用清單</button></div>`;
-    const by = {}; t.pack.forEach((p) => (by[p.cat] ||= []).push(p));
-    const done = t.pack.filter((p) => p.ok).length;
-    return prep + `<div class="card"><div class="row"><span class="sp">已打包 ${done}/${t.pack.length}</span><button class="sm" data-act="packreset">全部取消勾選</button></div><div class="bar"><i style="width:${(done / t.pack.length) * 100}%"></i></div></div>` +
-      Object.entries(by).map(([c, arr]) => `<h2>${esc(c)}</h2><div class="card">${arr.map((p) => `<div class="row ${p.ok ? "done" : ""}" style="padding:4px 0"><input type="checkbox" style="width:auto" data-act="packtog" data-id="${p.id}" ${p.ok ? "checked" : ""}><span class="sp" data-edit="pack:${p.id}">${esc(p.name)}</span></div>`).join("")}</div>`).join("");
+    return head + packHtml(t);
   },
 };
 
@@ -1478,9 +1553,10 @@ document.addEventListener("click", async (e) => {
       if (navigator.share) return navigator.share({ title: t.name, text: txt }).catch(() => {});
       return navigator.clipboard.writeText(txt).then(() => alert("行程已複製，可以貼到 LINE"), () => prompt("複製下面文字", txt));
     }
-    else if (act === "packtog") { const p = t.pack.find((x) => x.id === id); p.ok = el.checked; }
-    else if (act === "packreset") t.pack.forEach((p) => (p.ok = false));
-    else if (act === "packdef") t.pack = [["護照", "證件"], ["簽證/入境資料", "證件"], ["信用卡", "證件"], ["外幣現金", "證件"], ["駕照/國際駕照", "證件"], ["上衣", "衣物"], ["褲子", "衣物"], ["內衣褲", "衣物"], ["襪子", "衣物"], ["外套", "衣物"], ["睡衣", "衣物"], ["手機充電器", "電子"], ["行動電源", "電子"], ["轉接頭", "電子"], ["SIM卡/eSIM", "電子"], ["耳機", "電子"], ["牙刷牙膏", "盥洗"], ["保養品", "盥洗"], ["隱形眼鏡", "盥洗"], ["常備藥", "藥品"], ["腸胃藥", "藥品"], ["雨傘", "其他"], ["購物袋", "其他"]].map(([name, cat]) => ({ id: uid(), name, cat }));
+    else if (act === "packtog") { const p = t.pack.find((x) => x.id === id); p[filt.pm === "回程" ? "ok2" : "ok"] = el.checked; }
+    else if (act === "packreset") { if (!confirm("全部取消勾選？")) return; t.pack.forEach((p) => (p[filt.pm === "回程" ? "ok2" : "ok"] = false)); }
+    else if (act === "packgen") return openPackGen(t);
+    else if (act === "packdef") return openPackGen(t);
     save(); render(); return;
   }
   if (el.dataset.edit) { const [k, i] = el.dataset.edit.split(":"); openForm(k, t[k].find((x) => x.id === i)); }
@@ -1529,6 +1605,10 @@ addEventListener("popstate", (e) => {
   const dlg = $("#dlg");
   if (dlg.open) { closingByBack = true; dlg.close("cancel"); closingByBack = false; return; }
   if (e.state && e.state.tab && e.state.tab !== S.tab) goTab(e.state.tab, true);
+});
+document.addEventListener("change", (e) => {
+  const k = e.target.dataset && e.target.dataset.bw; if (!k) return;
+  const t = T(); (t.bagw ||= {})[k] = parseFloat(e.target.value) || 0; save(); render();
 });
 // 底部提示(可帶一個按鈕, 例如「復原」)
 let toastTimer, toastDone;
