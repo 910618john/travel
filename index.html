@@ -89,7 +89,23 @@ function newTrip(name) {
 let S;
 try { S = JSON.parse(localStorage.getItem(KEY)); } catch (e) { S = null; }
 if (!S || !S.trips || !S.trips.length) { const t = newTrip("我的旅程"); S = { trips: [t], cur: t.id, tab: "home", rates: null }; }
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { alert("儲存失敗：" + e.message); } };
+// 雲端同步: 填入 Firebase 設定後啟用(見 README), null = 只存本機
+const FIREBASE_CONFIG = null;
+S.deleted ||= {};
+// 每個旅程記最後修改時間 mt, 同步時以 mt 較新者為準
+const snap = {};
+const tripKey = (t) => JSON.stringify({ ...t, mt: 0 });
+const saveLocal = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { alert("儲存失敗：" + e.message); } };
+const save = () => {
+  for (const t of S.trips) {
+    const j = tripKey(t);
+    if (snap[t.id] === j) continue;
+    if (snap[t.id] !== undefined || !t.mt) t.mt = Date.now();
+    snap[t.id] = j;
+    window.TravelSync && TravelSync.push(t);
+  }
+  saveLocal();
+};
 const T = () => S.trips.find((t) => t.id === S.cur) || S.trips[0];
 
 // 票券檔案存 IndexedDB(localStorage 只有 ~5MB)
@@ -398,6 +414,7 @@ function openSettings() {
     <label>手動匯率（1 當地幣 = ? 本國幣，0 = 自動）</label><input type="number" step="any" name="manualRate" value="${t.manualRate || 0}">
     <label>預算（本國幣，0 = 不設）</label><input type="number" step="any" name="budget" value="${t.budget || 0}">
     <label>同行者（逗號分隔，第一位是自己）</label><input name="people" value="${esc(t.people.join(","))}">
+    ${syncSection()}
     <h3 style="margin-top:16px">資料</h3>
     <div class="mut">資料存在這台裝置的瀏覽器。換手機或備份請用匯出/匯入（票券檔案不含在 JSON 內）。</div>
     <div class="row" style="margin-top:6px"><button value="export" formnovalidate>匯出備份</button><label class="btn" style="margin:0;color:var(--fg)">匯入備份<input type="file" accept=".json" id="impFile" hidden></label><button value="theme" formnovalidate>切換深/淺色</button></div>
@@ -416,6 +433,13 @@ function openSettings() {
   dlg.onclose = () => {
     const act = dlg.returnValue; dlg.returnValue = "";
     const fd = new FormData(f);
+    if (act === "login" || act === "register") {
+      const em = fd.get("syncEmail"), pw = fd.get("syncPw");
+      if (!em || !pw) return alert("請輸入 Email 和密碼");
+      TravelSync[act](em, pw).catch((e) => alert("失敗：" + e.message));
+      return;
+    }
+    if (act === "logout") { TravelSync.logout(); return; }
     if (act === "export") {
       const a = document.createElement("a");
       a.href = URL.createObjectURL(new Blob([JSON.stringify({ trips: S.trips }, null, 1)], { type: "application/json" }));
@@ -426,6 +450,8 @@ function openSettings() {
       if (!confirm(`刪除「${t.name}」？無法復原`)) return;
       t.tickets.forEach((k) => k.fileId && fdel(k.fileId));
       S.trips = S.trips.filter((x) => x.id !== t.id);
+      S.deleted[t.id] = Date.now(); delete snap[t.id];
+      window.TravelSync && TravelSync.remove(t.id, S.deleted[t.id]);
       if (!S.trips.length) S.trips.push(newTrip("我的旅程"));
       S.cur = S.trips[0].id; save(); render(); return;
     }
@@ -441,8 +467,45 @@ function openSettings() {
 }
 
 if (S.theme) document.documentElement.dataset.theme = S.theme;
+function syncSection() {
+  if (!FIREBASE_CONFIG) return "";
+  const ts = window.TravelSync;
+  if (!ts) return `<h3 style="margin-top:16px">雲端同步</h3><div class="mut">同步模組載入中（需要網路）</div>`;
+  if (ts.user) return `<h3 style="margin-top:16px">雲端同步</h3><div class="mut">已登入 ${esc(ts.user)}・${esc(ts.state)}</div><div class="mut">票券檔案(PDF/截圖)不會同步，只同步文字資料。</div><div class="row" style="margin-top:6px"><button value="logout" formnovalidate>登出</button></div>`;
+  return `<h3 style="margin-top:16px">雲端同步</h3><div class="mut">登入後手機、電腦資料自動同步</div>
+    <input name="syncEmail" type="email" placeholder="Email" autocomplete="username" style="margin-top:6px"><input name="syncPw" type="password" placeholder="密碼(至少6碼)" autocomplete="current-password" style="margin-top:6px">
+    <div class="row" style="margin-top:6px"><button value="login" class="pri" formnovalidate>登入</button><button value="register" formnovalidate>第一次用：註冊</button></div>`;
+}
+// 給 sync.js 用的介面
+window.TravelApp = {
+  trips: () => S.trips,
+  deleted: () => S.deleted,
+  get: (id) => S.trips.find((t) => t.id === id),
+  apply(trip) {
+    if (S.deleted[trip.id] > (trip.mt || 0)) return;
+    const base = newTrip(); Object.keys(base).forEach((k) => (trip[k] ??= base[k]));
+    const i = S.trips.findIndex((t) => t.id === trip.id);
+    // 新裝置上沒動過的預設旅程, 收到雲端資料時直接拿掉
+    const blank = S.trips.length === 1 && !S.trips[0].mt && isBlank(S.trips[0]);
+    if (i >= 0) S.trips[i] = trip; else if (blank) { delete snap[S.trips[0].id]; S.trips = [trip]; S.cur = trip.id; } else S.trips.push(trip);
+    snap[trip.id] = tripKey(trip);
+    saveLocal(); if (!$("#dlg").open) render();
+  },
+  remove(id) {
+    S.trips = S.trips.filter((t) => t.id !== id); delete snap[id];
+    if (!S.trips.length) S.trips.push(newTrip("我的旅程"));
+    saveLocal(); if (!$("#dlg").open) render();
+  },
+  isBlank: (t) => isBlank(t),
+};
+function isBlank(t) { return ["itin", "spots", "books", "tickets", "exp", "pack"].every((k) => !t[k].length) && !t.start; }
+
+for (const t of S.trips) snap[t.id] = tripKey(t);
+// 舊資料沒有mt: 有內容的給1(要上傳), 沒動過的預設旅程給0(不上傳)
+for (const t of S.trips) t.mt ||= isBlank(t) ? 0 : 1;
 render();
 loadRates();
+if (FIREBASE_CONFIG) import("./sync.js").then((m) => m.start(FIREBASE_CONFIG)).catch(() => {});
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>
 </body>
