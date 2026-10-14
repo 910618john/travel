@@ -1123,7 +1123,8 @@ const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["spots", 
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
 const dayName = (d) => d ? ["日", "一", "二", "三", "四", "五", "六"][new Date(d + "T00:00").getDay()] : "";
 const dt = (s) => s ? s.replace("T", " ") : "";
-let filt = {};
+const UI_KEYS = ["iv", "tool", "pk", "ex"];
+let filt = { ...(S.ui || {}) };
 
 function chips(key, list) {
   const cur = filt[key] || "全部";
@@ -1143,6 +1144,9 @@ const V = {
     h += `<div class="grid2"><div class="card"><div class="mut">總花費 (${t.home})</div><div class="big">${fmt(total)}</div>${t.budget ? `<div class="bar"><i style="width:${Math.min(100, (total / t.budget) * 100)}%;${total > t.budget ? "background:var(--red)" : ""}"></i></div><div class="mut">預算 ${fmt(t.budget)}</div>` : ""}</div>
       <div class="card"><div class="mut">1 ${t.cur} =</div><div class="big">${fmt(rate(t.cur, t.home), 4)}</div><div class="mut">${t.home}${t.manualRate ? "（手動）" : ""}</div></div></div>`;
     const ended = t.end && today() > t.end;
+    const hasData = S.trips.some((x) => !isBlank(x));
+    if (hasData && !(window.TravelSync && TravelSync.user) && Date.now() - (S.lastExport || 0) > 14 * 864e5)
+      h += `<div class="card row" style="border-color:var(--warn)"><span class="sp">💾 資料目前只存在這支手機，換手機或清除瀏覽器資料會不見</span><button class="sm pri" data-act="opensettings">登入同步／備份</button></div>`;
     if (t.exp.length || t.itin.length) h += `<div class="row" style="margin-bottom:10px"><button class="${ended ? "pri" : ""}" data-act="summary" style="flex:1">📊 ${ended ? "旅程結束了！看旅行總結" : "旅行總結"}</button></div>`;
     h += `<div class="card" id="clock">${clockHtml(t)}</div>`;
     if (t.loc) {
@@ -1178,7 +1182,7 @@ const V = {
     const startD = t.start ? new Date(t.start + "T00:00") : null;
     return h + `<h2 style="display:none" class="printonly">${esc(t.name)}</h2>` + Object.keys(by).sort().map((d) => {
       const n = startD && d !== "未定" ? Math.round((new Date(d + "T00:00") - startD) / 864e5) + 1 : null;
-      return `<div class="daybar">${n ? `Day ${n}・` : ""}${d} ${dayName(d) ? "(" + dayName(d) + ")" : ""} <span class="wx">${wxTxt(wxOf(t, d))}</span></div><div class="dayitems">` +
+      return `<div class="daybar" data-day="${d}">${n ? `Day ${n}・` : ""}${d} ${dayName(d) ? "(" + dayName(d) + ")" : ""} <span class="wx">${wxTxt(wxOf(t, d))}</span></div><div class="dayitems">` +
         (() => { const arr = by[d].sort(byOrd), wh = d !== "未定" && wakeHotel(t, d), sh = d !== "未定" && sleepHotel(t, d);
           return (wh ? hotelConn(wh, arr[0], "from") : "") + arr.map((i, n) => (n ? connHtml(arr[n - 1], i) : "") + itinCard(i, arr.length > 1)).join("") + "</div>" + (sh ? hotelConn(sh, arr[arr.length - 1], "to") : ""); })();
     }).join("");
@@ -1328,7 +1332,7 @@ function toolBind(t) {
     document.querySelectorAll("[data-tip]").forEach((b) => (b.onclick = () => { $("#tipP").value = b.dataset.tip; calc(); }));
   }
 }
-const fabKind = () => S.tab === "fx" ? { 外語: "phr", 緊急: "emerg" }[filt.tool] : S.tab === "pack" ? { 必買: "shop", 行李: "pack" }[filt.pk || "必買"] : SCHEMA[S.tab] ? S.tab : null;
+const fabKind = () => S.tab === "itin" && filt.iv === "日記" ? null : S.tab === "fx" ? { 外語: "phr", 緊急: "emerg" }[filt.tool] : S.tab === "pack" ? { 必買: "shop", 行李: "pack" }[filt.pk || "必買"] : SCHEMA[S.tab] ? S.tab : null;
 
 function shopHtml(t) {
   if (!t.shop.length) return `<div class="empty">必買清單是空的，按 ＋ 新增<br>可以附商品照片，到店裡直接給店員看</div>`;
@@ -1398,8 +1402,12 @@ document.addEventListener("click", async (e) => {
   const el = e.target.closest("[data-tab],[data-act],[data-f],[data-edit]");
   if (!el || e.target.closest("a") || e.target.closest("[data-drag]")) return;
   const t = T();
-  if (el.dataset.tab) { S.tab = el.dataset.tab; save(); render(); scrollTo(0, 0); return; }
-  if (el.dataset.f) { filt[el.dataset.f] = el.dataset.v; render(); return; }
+  if (el.dataset.tab) { goTab(el.dataset.tab); return; }
+  if (el.dataset.f) {
+    filt[el.dataset.f] = el.dataset.v;
+    if (UI_KEYS.includes(el.dataset.f)) { S.ui = { ...(S.ui || {}), [el.dataset.f]: el.dataset.v }; saveLocal(); }
+    render(); return;
+  }
   const id = el.dataset.id, act = el.dataset.act;
   if (act) {
     e.stopPropagation();
@@ -1416,6 +1424,7 @@ document.addEventListener("click", async (e) => {
     else if (act === "fxreload") return loadRates(true);
     else if (act === "geoall") return geoAll(t);
     else if (act === "premap") return preMap(t);
+    else if (act === "opensettings") return openSettings();
     else if (act === "diary") return openDiary(t, el.dataset.d);
     else if (act === "settleshare") {
       const txt = settleText(t);
@@ -1479,6 +1488,26 @@ document.addEventListener("pointerdown", (e) => {
   };
   addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", up);
 });
+function goTab(tab, fromHistory) {
+  if (!fromHistory && tab !== S.tab) history.pushState({ tab }, "");
+  S.tab = tab; saveLocal(); render(); scrollTo(0, 0);
+  // 旅途中打開行程, 直接捲到今天
+  if (tab === "itin" && (filt.iv || "清單") === "清單") { const d = document.querySelector(`[data-day="${today()}"]`); if (d) d.scrollIntoView({ block: "start" }); }
+}
+// 手機返回鍵: 有視窗就關視窗, 否則回上一個分頁(不會直接跳出 App)
+history.replaceState({ tab: S.tab }, "");
+let ignorePop = false, closingByBack = false;
+new MutationObserver(() => {
+  const dlg = $("#dlg"), st = history.state || {};
+  if (dlg.open && !st.dlg) history.pushState({ dlg: 1, tab: S.tab }, "");
+  else if (!dlg.open && st.dlg && !closingByBack) { ignorePop = true; history.back(); }
+}).observe($("#dlg"), { attributes: true, attributeFilter: ["open"] });
+addEventListener("popstate", (e) => {
+  if (ignorePop) { ignorePop = false; return; }
+  const dlg = $("#dlg");
+  if (dlg.open) { closingByBack = true; dlg.close("cancel"); closingByBack = false; return; }
+  if (e.state && e.state.tab && e.state.tab !== S.tab) goTab(e.state.tab, true);
+});
 $("#fab").onclick = () => fabKind() && openForm(fabKind());
 $("#tripSel").onchange = (e) => {
   if (e.target.value === "__new") { const n = prompt("旅程名稱"); if (n) { const t = newTrip(n); S.trips.push(t); S.cur = t.id; save(); render(); openSettings(); } else render(); return; }
@@ -1533,7 +1562,7 @@ function openSettings() {
     if (act === "export") {
       const a = document.createElement("a");
       a.href = URL.createObjectURL(new Blob([JSON.stringify({ trips: S.trips }, null, 1)], { type: "application/json" }));
-      a.download = `travel-backup-${today()}.json`; a.click(); return;
+      a.download = `travel-backup-${today()}.json`; a.click(); S.lastExport = Date.now(); saveLocal(); render(); return;
     }
 
     if (act === "deltrip") {
