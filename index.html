@@ -61,6 +61,14 @@ a{color:var(--acc)}
 .daybar{position:sticky;top:57px;background:var(--bg);padding:6px 0;font-weight:700;z-index:1}
 .time{font-variant-numeric:tabular-nums;font-weight:600;min-width:46px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.pin{background:var(--acc);color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;border:2px solid #fff;box-shadow:0 1px 4px #0006}
+#map{height:62vh;border-radius:12px;border:1px solid var(--line)}
+.leaflet-popup-content{color:#1f2328}
+.wx{font-weight:400;font-size:13px;color:var(--mut)}
+.phr{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.phr:last-child{border:0}
+.huge{font-size:40px;font-weight:700;line-height:1.35;text-align:center;padding:24px 4px;word-break:break-word}
+@media print{header,nav,.fab,.noprint,.chips{display:none!important}.printonly{display:block!important}body{padding:0;background:#fff;color:#000}.card{break-inside:avoid;border-color:#ccc;background:#fff}.daybar{position:static;background:#fff}a{color:#000}}
 </style>
 </head>
 <body>
@@ -84,7 +92,7 @@ const today = () => new Date().toLocaleDateString("sv");
 
 function newTrip(name) {
   return { id: uid(), name: name || "新旅程", start: "", end: "", home: "TWD", cur: "JPY", people: ["我"], budget: 0, manualRate: 0,
-    itin: [], spots: [], books: [], tickets: [], exp: [], pack: [] };
+    itin: [], spots: [], books: [], tickets: [], exp: [], pack: [], emerg: [], phr: [], loc: null };
 }
 let S;
 try { S = JSON.parse(localStorage.getItem(KEY)); } catch (e) { S = null; }
@@ -160,7 +168,9 @@ const SCHEMA = {
   spots: [["name", "名稱", "text", 1], ["cat", "分類", "select", 0, SPOT_CATS], ["city", "城市/區域", "text"], ["addr", "地址或地圖連結", "text"], ["hours", "營業時間", "text"], ["price", "門票/預算", "text"], ["prio", "優先", "select", 0, ["必去", "想去", "有空再去"]], ["note", "備註", "textarea"]],
   books: [["type", "類型", "select", 0, BOOK_TYPES], ["title", "名稱(航班號/飯店名)", "text", 1], ["from", "出發地/地址", "text"], ["to", "目的地", "text"], ["start", "開始(起飛/入住)", "datetime-local"], ["end", "結束(抵達/退房)", "datetime-local"], ["code", "訂位代號", "text"], ["seat", "座位/房型", "text"], ["price", "金額", "number"], ["cur", "幣別", "cur"], ["paid", "已付款", "check"], ["note", "備註", "textarea"]],
   tickets: [["cat", "分類", "select", 0, TK_CATS], ["title", "名稱", "text", 1], ["date", "使用日期", "date"], ["code", "號碼/QR內容", "text"], ["file", "檔案(PDF/截圖)", "file"], ["used", "已使用", "check"], ["note", "備註", "textarea"]],
-  exp: [["date", "日期", "date"], ["cat", "分類", "select", 0, EXP_CATS], ["amt", "金額", "number", 1], ["cur", "幣別", "cur"], ["note", "項目", "text"], ["payer", "誰付", "payer"], ["split", "分攤", "split"], ["pay", "付款方式", "select", 0, ["現金", "信用卡", "交通卡", "行動支付"]]],
+  exp: [["date", "日期", "date"], ["cat", "分類", "select", 0, EXP_CATS], ["amt", "金額", "number", 1], ["cur", "幣別", "cur"], ["note", "項目", "text"], ["payer", "誰付", "payer"], ["split", "分攤", "split"], ["pay", "付款方式", "select", 0, ["現金", "信用卡", "交通卡", "行動支付"]], ["file", "收據照片", "file"]],
+  emerg: [["name", "名稱(保險/信用卡/飯店/駐外館處…)", "text", 1], ["tel", "電話", "tel"], ["note", "備註(保單號、卡號末四碼…)", "textarea"]],
+  phr: [["text", "要給對方看的句子(外文)", "textarea", 1], ["zh", "中文意思", "text"]],
   pack: [["name", "物品", "text", 1], ["cat", "分類", "select", 0, ["證件", "衣物", "電子", "盥洗", "藥品", "其他"]]],
 };
 const DEFAULTS = {
@@ -170,12 +180,15 @@ const DEFAULTS = {
   spots: () => ({ cat: "景點", prio: "想去" }),
   tickets: () => ({ cat: "門票" }),
   pack: () => ({ cat: "其他" }),
+  emerg: () => ({}),
+  phr: () => ({}),
 };
 
-function openForm(kind, item, after) {
-  const t = T(), isNew = !item, o = item ? { ...item } : DEFAULTS[kind]();
+function openForm(kind, item, after, pre) {
+  const t = T(), isNew = !item, o = item ? { ...item } : { ...DEFAULTS[kind](), ...pre };
+  const hint = o._hint; delete o._hint;
   const f = $("#dlgForm");
-  let h = `<h3>${isNew ? "新增" : "編輯"}</h3>`;
+  let h = `<h3>${isNew ? "新增" : "編輯"}</h3>${hint ? `<div class="mut">${esc(hint)}</div>` : ""}`;
   for (const [k, lab, type, req, opts] of SCHEMA[kind]) {
     const v = o[k] ?? "";
     h += type === "check" ? "" : `<label>${lab}</label>`;
@@ -198,7 +211,7 @@ function openForm(kind, item, after) {
       if (o.fileId) fdel(o.fileId);
       t[kind] = t[kind].filter((x) => x.id !== o.id); save(); render(); return;
     }
-    if (act !== "ok") return;
+    if (act !== "ok") { if (isNew && o.fileId) fdel(o.fileId); return; }
     const fd = new FormData(f);
     for (const [k, , type] of SCHEMA[kind]) {
       if (type === "split") o.split = fd.getAll("split");
@@ -209,14 +222,272 @@ function openForm(kind, item, after) {
         if (file && file.size) { if (o.fileId) await fdel(o.fileId); o.fileId = uid(); o.fileName = file.name; o.fileType = file.type; await fput(o.fileId, file); }
       } else o[k] = (fd.get(k) || "").trim();
     }
+    // 地點改了就重新定位
+    if (item && ((kind === "itin" && item.place !== o.place) || (kind === "spots" && (item.addr !== o.addr || item.name !== o.name)))) { o.lat = o.lon = null; o.geoFail = false; }
     if (isNew) { o.id = uid(); t[kind].push(o); } else Object.assign(item, o);
     save(); render(); after && after(o);
   };
   dlg.showModal();
 }
 
+// ===== 目的地(城市定位) =====
+const CUR2CC = { JPY: "JP", KRW: "KR", THB: "TH", SGD: "SG", CNY: "CN", AUD: "AU", NZD: "NZ", EUR: "FR", GBP: "GB", USD: "US", CAD: "CA", HKD: "HK", MOP: "MO", VND: "VN", MYR: "MY", PHP: "PH", IDR: "ID", CHF: "CH", CZK: "CZ", TRY: "TR", AED: "AE", TWD: "TW" };
+const ccOf = (t) => (t.loc && t.loc.cc) || CUR2CC[t.cur] || "";
+async function geoCity(q) {
+  const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?count=1&language=zh&format=json&name=${encodeURIComponent(q)}`);
+  const x = ((await r.json()).results || [])[0];
+  return x ? { name: x.name, country: x.country || "", lat: +x.latitude.toFixed(4), lon: +x.longitude.toFixed(4), tz: x.timezone, cc: x.country_code } : null;
+}
+
+// ===== 天氣(Open-Meteo, 免金鑰, 16天預報) =====
+const WXI = { 0: "☀️", 1: "🌤", 2: "⛅", 3: "☁️", 45: "🌫", 48: "🌫", 51: "🌦", 53: "🌦", 55: "🌦", 56: "🌧", 57: "🌧", 61: "🌧", 63: "🌧", 65: "🌧", 66: "🌧", 67: "🌧", 71: "🌨", 73: "🌨", 75: "❄️", 77: "🌨", 80: "🌦", 81: "🌧", 82: "⛈", 85: "🌨", 86: "❄️", 95: "⛈", 96: "⛈", 99: "⛈" };
+S.wx ||= {};
+const wxBusy = {};
+const wxKey = (t) => t.loc && t.loc.lat + "," + t.loc.lon;
+function loadWx(t) {
+  const k = wxKey(t);
+  if (!k || wxBusy[k] || (S.wx[k] && Date.now() - S.wx[k].ts < 3 * 3600e3)) return;
+  wxBusy[k] = 1;
+  fetch(`https://api.open-meteo.com/v1/forecast?latitude=${t.loc.lat}&longitude=${t.loc.lon}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=16`)
+    .then((r) => r.json()).then((j) => {
+      const d = {};
+      j.daily.time.forEach((x, i) => (d[x] = [j.daily.weather_code[i], Math.round(j.daily.temperature_2m_max[i]), Math.round(j.daily.temperature_2m_min[i]), j.daily.precipitation_probability_max[i]]));
+      S.wx[k] = { ts: Date.now(), d }; saveLocal(); if (!$("#dlg").open) render();
+    }).catch(() => {}).finally(() => delete wxBusy[k]);
+}
+const wxOf = (t, date) => { const c = S.wx[wxKey(t)]; return c && c.d[date]; };
+const wxTxt = (w) => w ? `${WXI[w[0]] || "🌡"} ${w[2]}~${w[1]}°${w[3] != null ? ` ☔${w[3]}%` : ""}` : "";
+
+// ===== 時差時鐘 =====
+function tzOff(tz) {
+  try {
+    const v = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "shortOffset" }).formatToParts(new Date()).find((p) => p.type === "timeZoneName").value;
+    const m = v.match(/GMT([+-])(\d+)(?::(\d+))?/);
+    return m ? (m[1] === "-" ? -1 : 1) * (+m[2] + (+m[3] || 0) / 60) : 0;
+  } catch (e) { return 0; }
+}
+const clk = (tz) => new Date().toLocaleTimeString("zh-TW", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false });
+function clockHtml(t) {
+  if (!t.loc) return `<div class="mut">到 ⚙︎ 設定目的地城市，就會顯示當地時間和天氣</div>`;
+  const d = tzOff(t.loc.tz) - tzOff("Asia/Taipei");
+  return `<div class="row"><div class="sp"><div class="mut">${esc(t.loc.name)} 當地</div><div class="big">${clk(t.loc.tz)}</div></div>
+    <div class="sp"><div class="mut">台灣</div><div class="big">${clk("Asia/Taipei")}</div></div>
+    <div><div class="mut">時差</div><b>${d === 0 ? "相同" : (d > 0 ? "+" : "") + d + " 小時"}</b></div></div>`;
+}
+setInterval(() => { const el = $("#clock"); if (el && !$("#dlg").open) el.innerHTML = clockHtml(T()); }, 30000);
+
+// ===== 地圖(Leaflet + OpenStreetMap) =====
+let leafletP;
+function loadLeaflet() {
+  return (leafletP ||= new Promise((res, rej) => {
+    const l = document.createElement("link"); l.rel = "stylesheet"; l.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"; document.head.appendChild(l);
+    const sc = document.createElement("script"); sc.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+    sc.onload = () => res(window.L); sc.onerror = () => { leafletP = null; rej(); }; document.head.appendChild(sc);
+  }));
+}
+const isUrl = (s) => /^https?:/.test(s || "");
+function coordFromLink(s) {
+  const m = (s || "").match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || (s || "").match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) || (s || "").match(/[?&](?:q|query|ll|destination)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/);
+  return m ? [+m[1], +m[2]] : null;
+}
+async function geocode(q, t) {
+  const cc = ccOf(t) ? `&countrycodes=${ccOf(t).toLowerCase()}` : "";
+  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=zh-TW${cc}&q=${encodeURIComponent(q)}`);
+  const j = await r.json();
+  return j[0] ? [+j[0].lat, +j[0].lon] : null;
+}
+const needGeo = (x) => x.lat == null && !x.geoFail;
+async function geoAll(t) {
+  const list = [...t.itin.map((i) => [i, i.place, i.title]), ...t.spots.map((s) => [s, s.addr, s.name + (s.city ? " " + s.city : "")])].filter(([x]) => needGeo(x));
+  if (!list.length) return alert("全部都定位過了");
+  const btn = $("#geoBtn"); let n = 0, ok = 0;
+  for (const [x, place, name] of list) {
+    if (btn) btn.textContent = `定位中 ${++n}/${list.length}…`;
+    let c = coordFromLink(place);
+    try {
+      for (const q of [isUrl(place) ? "" : place, name].filter(Boolean)) {
+        if (c) break;
+        c = await geocode(q, t);
+        await new Promise((r) => setTimeout(r, 1100)); // Nominatim 限每秒1次
+      }
+    } catch (e) { }
+    if (c) { x.lat = c[0]; x.lon = c[1]; ok++; } else x.geoFail = true;
+  }
+  save(); render();
+  alert(`定位完成：${ok}/${list.length}` + (ok < list.length ? "\n找不到的可以編輯地點，改成更完整的地址或貼含座標的 Google 地圖連結" : ""));
+}
+async function initMap(t) {
+  const el = $("#map"); if (!el) return;
+  let L; try { L = await loadLeaflet(); } catch (e) { el.innerHTML = '<div class="empty">地圖載入失敗（需要網路）</div>'; return; }
+  if (!el.isConnected) return;
+  const m = L.map(el);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(m);
+  const nav = (x) => `<a target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${x.lat},${x.lon}">導航 ↗</a>`;
+  const pts = [], day = filt.md;
+  const items = t.itin.filter((i) => i.date === day && i.lat != null).sort((a, b) => (a.time || "99").localeCompare(b.time || "99"));
+  items.forEach((i, n) => {
+    L.marker([i.lat, i.lon], { icon: L.divIcon({ className: "", html: `<div class="pin">${n + 1}</div>`, iconSize: [26, 26], iconAnchor: [13, 13] }) })
+      .addTo(m).bindPopup(`<b>${esc(i.time || "")} ${esc(i.title)}</b><br>${nav(i)}`);
+    pts.push([i.lat, i.lon]);
+  });
+  if (items.length > 1) L.polyline(pts, { color: "#0f766e", weight: 3, opacity: 0.7, dashArray: "6 6" }).addTo(m);
+  t.spots.filter((s) => s.lat != null).forEach((s) => {
+    L.circleMarker([s.lat, s.lon], { radius: day === "全部景點" ? 8 : 5, color: s.done ? "#9ca3af" : s.prio === "必去" ? "#dc2626" : "#d97706", fillOpacity: 0.8 })
+      .addTo(m).bindPopup(`<b>${esc(s.name)}</b><br>${esc(s.prio)}・${esc(s.cat)}<br>${nav(s)}`);
+    if (day === "全部景點") pts.push([s.lat, s.lon]);
+  });
+  if (pts.length) m.fitBounds(pts, { padding: [30, 30], maxZoom: 15 });
+  else if (t.loc) m.setView([t.loc.lat, t.loc.lon], 12);
+  else m.setView([25.03, 121.56], 4);
+}
+
+// ===== 分享 / 列印 =====
+function itinText(t) {
+  let s = `${t.name}\n${t.start || ""}～${t.end || ""}\n`;
+  const by = {}; t.itin.forEach((i) => (by[i.date || "未定"] ||= []).push(i));
+  const startD = t.start ? new Date(t.start + "T00:00") : null;
+  for (const d of Object.keys(by).sort()) {
+    const n = startD && d !== "未定" ? Math.round((new Date(d + "T00:00") - startD) / 864e5) + 1 : null;
+    s += `\n【${n ? `Day ${n} ` : ""}${d}${dayName(d) ? "(" + dayName(d) + ")" : ""}】${wxTxt(wxOf(t, d))}\n`;
+    for (const i of by[d].sort((a, b) => (a.time || "99").localeCompare(b.time || "99")))
+      s += `${i.time || "--:--"} ${i.title}${i.place && !isUrl(i.place) ? "＠" + i.place : ""}\n`;
+  }
+  return s;
+}
+
+// ===== 收據辨識(Tesseract.js, 在手機上跑, 不上傳) =====
+let tessP;
+const loadTess = () => (tessP ||= new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"; sc.onload = () => res(window.Tesseract); sc.onerror = () => { tessP = null; rej(new Error("載入失敗")); }; document.head.appendChild(sc); }));
+async function shrink(file, max = 1600) {
+  const img = await createImageBitmap(file);
+  const k = Math.min(1, max / Math.max(img.width, img.height));
+  const c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  return new Promise((r) => c.toBlob(r, "image/jpeg", 0.85));
+}
+function parseTotal(text) {
+  const nums = (l) => (l.replace(/(\d)[,，](?=\d{3}\b)/g, "$1").match(/\d+(?:\.\d{1,2})?/g) || []).map(Number).filter((n) => n > 0 && n < 1e8);
+  const SKIP = /お預|預り|釣|CHANGE|Change|change|TENDER|Tender|CASH|Cash|거스름|받은|ทอน|รับเงิน|Rückgeld|Gegeben/;
+  const STRONG = /合\s*計|合计|総\s*計|お会計|TOTAL|Total|total|합\s*계|총\s*액|결제금액|รวมทั้งสิ้น|ยอดรวม|ยอดสุทธิ|Summe|SUMME|Gesamt|Totale|TOTALE|Tổng/;
+  const WEAK = /計|Amount|AMOUNT|결제|รวม|Betrag/;
+  const lines = text.split(/\n/).filter((l) => !SKIP.test(l));
+  for (const re of [STRONG, WEAK]) {
+    const v = lines.filter((l) => re.test(l)).flatMap(nums);
+    if (v.length) return Math.max(...v);
+  }
+  return 0;
+}
+async function doOcr(file) {
+  const t = T();
+  const lang = { JPY: "jpn+eng", KRW: "kor+eng", CNY: "chi_sim+eng", HKD: "chi_tra+eng", MOP: "chi_tra+eng", TWD: "chi_tra+eng", THB: "tha+eng" }[t.cur] || "eng";
+  const st = $("#ocrSt"); const say = (m) => st && (st.textContent = m);
+  say("處理照片…");
+  const blob = await shrink(file); const fileId = uid(); await fput(fileId, blob);
+  let amt = 0, hint = "";
+  try {
+    say("辨識中…第一次要下載語言檔，約 10~30 秒");
+    const Ts = await loadTess();
+    const r = await Promise.race([
+      (async () => { const w = await Ts.createWorker(lang); try { return await w.recognize(blob); } finally { w.terminate(); } })(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("逾時")), 90000)),
+    ]);
+    amt = parseTotal(r.data.text);
+    hint = amt ? `📷 辨識到金額 ${fmt(amt, 2)}，請確認` : "📷 沒抓到金額，請手動輸入（照片已附上）";
+  } catch (e) { hint = "📷 辨識失敗（需要網路），請手動輸入（照片已附上）"; }
+  say("");
+  openForm("exp", null, null, { amt: amt || "", fileId, fileName: "收據.jpg", fileType: "image/jpeg", _hint: hint });
+}
+
+// ===== 工具資料(數字僅供估算, 以現場/官方為準) =====
+const TAX = {
+  JP: ["日本", 10, 5000, 0, "消費稅 10%（食品 8%），同店同日未稅滿 ¥5,000。2026/11/1 起改成「結帳先付含稅價、出境時在機場申請退回」，細節以官方公告為準。"],
+  KR: ["韓國", 10, 15000, 30, "同店滿 ₩15,000，部分店家可當場扣除；實拿約售價 5~7%。"],
+  TH: ["泰國", 7, 2000, 20, "掛 VAT Refund for Tourists 標誌的店，同店同日滿 2,000 THB、整趟滿 5,000 THB，機場辦理。"],
+  SG: ["新加坡", 9, 100, 15, "GST 9%，同店滿 S$100（同日最多可合併 3 張收據），機場 eTRS 辦理。"],
+  CN: ["中國", 13, 500, 20, "同店同日滿 500 元，實拿約 11%。"],
+  AU: ["澳洲", 10, 300, 0, "GST 10%，同店滿 A$300、出境前 60 天內購買，機場 TRS 辦理。"],
+  FR: ["法國", 20, 100.01, 35, "同店同日滿 €100.01，實拿約 12%。"],
+  DE: ["德國", 19, 50.01, 35, "同店滿 €50.01，實拿約 10~12%。"],
+  IT: ["義大利", 22, 70.01, 35, "同店滿 €70.01，實拿約 12~15%。"],
+  ES: ["西班牙", 21, 0, 35, "無最低門檻，實拿約 12~15%。"],
+  NL: ["荷蘭", 21, 50, 35, "同店滿 €50。"],
+  CH: ["瑞士", 8.1, 300, 30, "同店滿 CHF 300。"],
+  CZ: ["捷克", 21, 2001, 35, "同店滿 2,001 CZK。"],
+  TR: ["土耳其", 20, 0, 30, "依店家門檻。"],
+  VN: ["越南", 10, 2000000, 15, "滿 200 萬越盾，在國際機場辦理；稅率以收據為準。"],
+  GB: ["英國", 0, 0, 0, "英國 2021 年起取消觀光客購物退稅。"],
+  US: ["美國", 0, 0, 0, "美國沒有觀光客退稅（銷售稅是結帳時外加）。"],
+  HK: ["香港", 0, 0, 0, "香港沒有銷售稅，不用退稅。"],
+  MO: ["澳門", 0, 0, 0, "澳門沒有銷售稅，不用退稅。"],
+  MY: ["馬來西亞", 0, 0, 0, "目前沒有觀光客退稅。"],
+};
+const TIP = {
+  US: [[15, 18, 20, 22], "餐廳 18~22%、計程車 15~20%、飯店房務每晚 $2~5"],
+  CA: [[15, 18, 20], "餐廳 15~20%"],
+  MX: [[10, 15], "餐廳 10~15%"],
+  GB: [[0, 10, 12.5], "帳單常已含 12.5% service charge，有含就不用再給"],
+  FR: [[0, 5, 10], "服務費已含，滿意可留零錢"],
+  DE: [[0, 5, 10], "習慣湊整數，約 5~10%"],
+  IT: [[0, 5, 10], "常有 coperto（座位費），小費隨意"],
+  ES: [[0, 5, 10], "隨意，留零錢即可"],
+  AU: [[0, 10], "不強制，高級餐廳可給 10%"],
+  NZ: [[0, 10], "不強制"],
+  JP: [[0], "日本不收小費，給了反而困擾"],
+  KR: [[0], "韓國不需要小費"],
+  CN: [[0], "不需要小費"],
+  HK: [[0, 10], "餐廳多已收 10% 服務費"],
+  SG: [[0], "帳單已含 10% 服務費，不需要小費"],
+  TH: [[0, 5, 10], "不強制，按摩可給 50~100 THB"],
+  VN: [[0, 5, 10], "不強制"],
+};
+const SOS = {
+  JP: [["警察", "110"], ["救護車／消防", "119"], ["JNTO 觀光客熱線（中文）", "050-3816-2787"]],
+  KR: [["警察", "112"], ["救護車／消防", "119"], ["觀光諮詢（中文）", "1330"]],
+  TH: [["觀光警察", "1155"], ["警察", "191"], ["救護車", "1669"]],
+  SG: [["警察", "999"], ["救護車／消防", "995"]],
+  HK: [["警察／救護車／消防", "999"]], MO: [["緊急", "999"]],
+  CN: [["警察", "110"], ["救護車", "120"], ["消防", "119"]],
+  US: [["緊急", "911"]], CA: [["緊急", "911"]], MX: [["緊急", "911"]], PH: [["緊急", "911"]],
+  GB: [["緊急", "999"], ["緊急（通用）", "112"]], AU: [["緊急", "000"]], NZ: [["緊急", "111"]],
+  VN: [["警察", "113"], ["消防", "114"], ["救護車", "115"]], MY: [["緊急", "999"]], ID: [["緊急", "112"]],
+};
+const PHRASES = [
+  ["你好", "こんにちは", "안녕하세요", "Hello", "สวัสดีครับ/ค่ะ"],
+  ["謝謝", "ありがとうございます", "감사합니다", "Thank you", "ขอบคุณครับ/ค่ะ"],
+  ["不好意思（叫人／借過）", "すみません", "저기요", "Excuse me", "ขอโทษครับ/ค่ะ"],
+  ["這個多少錢？", "これはいくらですか？", "이거 얼마예요?", "How much is this?", "อันนี้ราคาเท่าไหร่"],
+  ["可以刷卡嗎？", "カードで払えますか？", "카드 돼요?", "Can I pay by card?", "จ่ายด้วยบัตรได้ไหม"],
+  ["請給我這個", "これをください", "이거 주세요", "I'd like this, please.", "เอาอันนี้ครับ/ค่ะ"],
+  ["請給我菜單", "メニューをください", "메뉴판 주세요", "Can I see the menu, please?", "ขอเมนูหน่อย"],
+  ["不要辣", "辛くしないでください", "안 맵게 해 주세요", "Not spicy, please.", "ไม่เผ็ด"],
+  ["我對花生過敏", "ピーナッツアレルギーがあります", "땅콩 알레르기가 있어요", "I'm allergic to peanuts.", "แพ้ถั่วลิสง"],
+  ["請結帳", "お会計をお願いします", "계산해 주세요", "Check, please.", "เช็คบิลด้วย"],
+  ["可以退稅嗎？", "免税できますか？", "택스 리펀드 되나요?", "Is tax-free shopping available?", "ขอคืนภาษี (VAT Refund) ได้ไหม"],
+  ["廁所在哪裡？", "トイレはどこですか？", "화장실이 어디예요?", "Where is the restroom?", "ห้องน้ำอยู่ที่ไหน"],
+  ["我想去這裡", "ここに行きたいです", "여기에 가고 싶어요", "I want to go here.", "อยากไปที่นี่"],
+  ["請幫我叫計程車", "タクシーを呼んでください", "택시를 불러 주세요", "Please call a taxi for me.", "ช่วยเรียกแท็กซี่ให้หน่อย"],
+  ["請幫我們拍照", "写真を撮っていただけますか？", "사진 좀 찍어 주시겠어요?", "Could you take a photo of us?", "ช่วยถ่ายรูปให้หน่อยได้ไหม"],
+  ["請說慢一點", "ゆっくり話してください", "천천히 말해 주세요", "Could you speak slowly, please?", "พูดช้าๆ หน่อย"],
+  ["我迷路了", "道に迷いました", "길을 잃었어요", "I'm lost.", "หลงทาง"],
+  ["請叫救護車！", "救急車を呼んでください！", "구급차를 불러 주세요!", "Please call an ambulance!", "ช่วยเรียกรถพยาบาลด้วย!"],
+];
+const LANGS = [["日文", 1, "ja-JP"], ["韓文", 2, "ko-KR"], ["英文", 3, "en-US"], ["泰文", 4, "th-TH"]];
+const defLang = (t) => ({ JP: "日文", KR: "韓文", TH: "泰文" }[ccOf(t)] || "英文");
+function speak(text, lang) {
+  if (!window.speechSynthesis) return alert("這個瀏覽器不支援朗讀");
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text); u.lang = lang; u.rate = 0.85; speechSynthesis.speak(u);
+}
+function showBig(text, zh, lang) {
+  const dlg = $("#dlg"); dlg.onclose = null;
+  $("#dlgForm").innerHTML = `<div class="huge">${esc(text)}</div>${zh ? `<div class="mut" style="text-align:center">${esc(zh)}</div>` : ""}
+    <div class="row" style="margin-top:16px"><button type="button" data-say="${esc(text)}" data-lang="${lang || ""}">🔊 唸出來</button><span class="sp"></span><button value="cancel" class="pri">關閉</button></div>`;
+  dlg.showModal();
+}
+const telLink = (n) => `<a style="white-space:nowrap" href="tel:${esc(String(n).replace(/[^\d+]/g, ""))}">${esc(n)}</a>`;
+
 // ===== 畫面 =====
-const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["spots", "📍", "景點"], ["books", "✈️", "訂位"], ["tickets", "🎫", "票券"], ["exp", "💰", "花費"], ["fx", "💱", "匯率"], ["pack", "🧳", "清單"]];
+const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["spots", "📍", "景點"], ["books", "✈️", "訂位"], ["tickets", "🎫", "票券"], ["exp", "💰", "花費"], ["fx", "🧰", "工具"], ["pack", "🧳", "清單"]];
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
 const dayName = (d) => d ? ["日", "一", "二", "三", "四", "五", "六"][new Date(d + "T00:00").getDay()] : "";
 const dt = (s) => s ? s.replace("T", " ") : "";
@@ -239,19 +510,39 @@ const V = {
       ${days !== null ? `<div class="big" style="margin-top:6px">${days > 0 ? `倒數 ${days} 天` : days === 0 ? "今天出發！" : t.end && today() <= t.end ? `旅程第 ${1 - days} 天` : "已結束"}</div>` : `<div class="mut" style="margin-top:6px">到 ⚙︎ 設定日期</div>`}</div>`;
     h += `<div class="grid2"><div class="card"><div class="mut">總花費 (${t.home})</div><div class="big">${fmt(total)}</div>${t.budget ? `<div class="bar"><i style="width:${Math.min(100, (total / t.budget) * 100)}%;${total > t.budget ? "background:var(--red)" : ""}"></i></div><div class="mut">預算 ${fmt(t.budget)}</div>` : ""}</div>
       <div class="card"><div class="mut">1 ${t.cur} =</div><div class="big">${fmt(rate(t.cur, t.home), 4)}</div><div class="mut">${t.home}${t.manualRate ? "（手動）" : ""}</div></div></div>`;
+    h += `<div class="card" id="clock">${clockHtml(t)}</div>`;
+    if (t.loc) {
+      const tripDays = [];
+      if (t.start && t.end) for (let d = new Date(t.start + "T00:00"); d <= new Date(t.end + "T00:00") && tripDays.length < 30; d.setDate(d.getDate() + 1)) tripDays.push(d.toLocaleDateString("sv"));
+      let ds = tripDays.filter((d) => wxOf(t, d)), title = "旅程天氣預報";
+      if (!ds.length) { const c = S.wx[wxKey(t)]; ds = c ? Object.keys(c.d).filter((d) => d >= today()).slice(0, 5) : []; title = `${esc(t.loc.name)} 近期天氣`; }
+      if (ds.length) h += `<h2>${title}</h2><div class="card"><table>${ds.map((d) => `<tr><td>${d.slice(5)} (${dayName(d)})</td><td class="r">${wxTxt(wxOf(t, d))}</td></tr>`).join("")}</table>${tripDays.length && !tripDays.some((d) => wxOf(t, d)) ? '<div class="mut">出發前 16 天內會顯示旅程期間預報</div>' : ""}</div>`;
+    }
     h += `<h2>今天行程</h2>` + (todays.length ? todays.map(itinCard).join("") : `<div class="card mut">今天沒有安排</div>`);
     if (tkToday.length) h += `<h2>今天要用的票券</h2>` + tkToday.map(tkCard).join("");
     if (next) h += `<h2>下一個預訂</h2>` + bookCard(next);
     return h;
   },
   itin(t) {
-    if (!t.itin.length) return `<div class="empty">還沒有行程，按 ＋ 新增<br>或到「景點」把想去的加進來</div>`;
+    const mode = filt.iv || "清單";
+    let h = `<div class="row noprint" style="margin-bottom:8px"><div class="chips" style="margin:0">${["清單", "地圖"].map((m) => `<button class="${m === mode ? "on" : ""}" data-f="iv" data-v="${m}">${m === "清單" ? "📋" : "🗺"} ${m}</button>`).join("")}</div><span class="sp"></span>
+      ${mode === "清單" ? '<button class="sm" data-act="share">分享</button><button class="sm" data-act="print">列印/PDF</button>' : ""}</div>`;
+    if (mode === "地圖") {
+      const dates = [...new Set(t.itin.map((i) => i.date).filter(Boolean))].sort();
+      if (!filt.md || (filt.md !== "全部景點" && !dates.includes(filt.md))) filt.md = dates.includes(today()) ? today() : dates[0] || "全部景點";
+      const miss = [...t.itin, ...t.spots].filter(needGeo).length;
+      const fail = [...t.itin, ...t.spots].filter((x) => x.geoFail).length;
+      return h + `<div class="chips">${[...dates, "全部景點"].map((d) => `<button class="${d === filt.md ? "on" : ""}" data-f="md" data-v="${d}">${d === "全部景點" ? "📍 全部景點" : d.slice(5) + "(" + dayName(d) + ")"}</button>`).join("")}</div>
+        <div id="map"></div>
+        <div class="row" style="margin-top:8px"><span class="mut sp">數字＝當天行程順序・橘／紅點＝景點（紅＝必去）${fail ? `・${fail} 個找不到位置` : ""}</span>${miss ? `<button class="sm pri" id="geoBtn" data-act="geoall">📍 定位 ${miss} 個地點</button>` : ""}</div>`;
+    }
+    if (!t.itin.length) return h + `<div class="empty">還沒有行程，按 ＋ 新增<br>或到「景點」把想去的加進來</div>`;
     const by = {};
     t.itin.forEach((i) => (by[i.date || "未定"] ||= []).push(i));
     const startD = t.start ? new Date(t.start + "T00:00") : null;
-    return Object.keys(by).sort().map((d) => {
+    return h + `<h2 style="display:none" class="printonly">${esc(t.name)}</h2>` + Object.keys(by).sort().map((d) => {
       const n = startD && d !== "未定" ? Math.round((new Date(d + "T00:00") - startD) / 864e5) + 1 : null;
-      return `<div class="daybar">${n ? `Day ${n}・` : ""}${d} ${dayName(d) ? "(" + dayName(d) + ")" : ""}</div>` +
+      return `<div class="daybar">${n ? `Day ${n}・` : ""}${d} ${dayName(d) ? "(" + dayName(d) + ")" : ""} <span class="wx">${wxTxt(wxOf(t, d))}</span></div>` +
         by[d].sort((a, b) => (a.time || "99").localeCompare(b.time || "99")).map(itinCard).join("");
     }).join("");
   },
@@ -283,18 +574,24 @@ const V = {
     const total = tot(t.exp);
     const byCat = {}; t.exp.forEach((e) => (byCat[e.cat] = (byCat[e.cat] || 0) + toHome(e.amt, e.cur)));
     const maxC = Math.max(1, ...Object.values(byCat));
-    let h = `<div class="card"><div class="row"><div class="sp"><div class="mut">總花費</div><div class="big">${fmt(total)} <small>${t.home}</small></div></div>
+    let h = `<div class="row" style="margin-bottom:8px"><label class="btn pri" style="margin:0;color:#fff">📷 拍收據記帳<input type="file" accept="image/*" capture="environment" id="ocrIn" hidden></label><span class="mut" id="ocrSt"></span></div>
+      <div class="card"><div class="row"><div class="sp"><div class="mut">總花費</div><div class="big">${fmt(total)} <small>${t.home}</small></div></div>
       ${t.budget ? `<div style="text-align:right"><div class="mut">剩餘預算</div><b style="color:${total > t.budget ? "var(--red)" : "inherit"}">${fmt(t.budget - total)}</b></div>` : ""}</div>
       ${t.people.length > 1 ? `<div class="mut">每人平均 ${fmt(total / t.people.length)}</div>` : ""}</div>`;
     if (Object.keys(byCat).length) h += `<div class="card"><table>${Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([c, v]) => `<tr><td style="width:70px">${c}</td><td><div class="bar"><i style="width:${(v / maxC) * 100}%"></i></div></td><td class="r" style="width:90px">${fmt(v)}</td><td class="r mut" style="width:44px">${fmt((v / total) * 100)}%</td></tr>`).join("")}</table></div>`;
     if (t.people.length > 1 && t.exp.length) h += settle(t);
     const by = {}; t.exp.forEach((e) => (by[e.date || "未定"] ||= []).push(e));
     h += Object.keys(by).sort().reverse().map((d) => `<div class="daybar row"><span class="sp">${d} ${dayName(d) ? "(" + dayName(d) + ")" : ""}</span><span class="mut">${fmt(tot(by[d]))} ${t.home}</span></div>` +
-      by[d].map((e) => `<div class="card row" data-edit="exp:${e.id}"><div class="sp"><b>${esc(e.note || e.cat)}</b><div class="mut">${esc(e.cat)}・${esc(e.pay || "")}${t.people.length > 1 ? `・${esc(e.payer)}付` : ""}</div></div>
+      by[d].map((e) => `<div class="card row" data-edit="exp:${e.id}"><div class="sp"><b>${esc(e.note || e.cat)}</b>${e.fileId ? ` <button class="sm" data-act="fopen" data-k="exp" data-id="${e.id}">🧾</button>` : ""}<div class="mut">${esc(e.cat)}・${esc(e.pay || "")}${t.people.length > 1 ? `・${esc(e.payer)}付` : ""}</div></div>
         <div style="text-align:right"><b>${fmt(e.amt, 2)} ${e.cur}</b>${e.cur !== t.home ? `<div class="mut">≈ ${fmt(toHome(e.amt, e.cur))} ${t.home}</div>` : ""}</div></div>`).join("")).join("");
-    return h || `<div class="empty">還沒有花費</div>`;
+    return h + (t.exp.length ? "" : `<div class="empty">還沒有花費</div>`);
   },
   fx(t) {
+    const sub = filt.tool || "匯率";
+    const head = `<div class="chips">${["匯率", "退稅", "小費", "外語", "緊急"].map((x) => `<button class="${x === sub ? "on" : ""}" data-f="tool" data-v="${x}">${x}</button>`).join("")}</div>`;
+    return head + TOOLS[sub](t);
+  },
+  fxRate(t) {
     const r = rate(t.cur, t.home);
     const ts = S.rates ? new Date(S.rates.ts).toLocaleString("zh-TW") : "未取得";
     const quick = [100, 500, 1000, 2000, 5000, 10000].map((x) => (t.cur === "JPY" || t.cur === "KRW" || t.cur === "VND" || t.cur === "IDR") ? x * 10 : x / 10);
@@ -317,6 +614,71 @@ const V = {
       Object.entries(by).map(([c, arr]) => `<h2>${esc(c)}</h2><div class="card">${arr.map((p) => `<div class="row ${p.ok ? "done" : ""}" style="padding:4px 0"><input type="checkbox" style="width:auto" data-act="packtog" data-id="${p.id}" ${p.ok ? "checked" : ""}><span class="sp" data-edit="pack:${p.id}">${esc(p.name)}</span></div>`).join("")}</div>`).join("");
   },
 };
+
+const TOOLS = {
+  匯率: (t) => V.fxRate(t),
+  退稅(t) {
+    const cc = filt.taxcc || (TAX[ccOf(t)] ? ccOf(t) : "JP");
+    const [n, vat, min, fee, note] = TAX[cc];
+    return `<div class="card"><label>國家</label><select id="taxCc">${Object.entries(TAX).map(([k, v]) => `<option value="${k}" ${k === cc ? "selected" : ""}>${v[0]}</option>`).join("")}</select>
+      <div class="mut" style="margin-top:6px">${esc(note)}</div>
+      ${vat ? `<label>購買金額（含稅，${t.cur}）</label><input id="taxP" type="number" inputmode="decimal" step="any" placeholder="例：${min ? Math.ceil(min * 1.2) : 10000}">
+      <div class="grid2"><div><label>稅率 %</label><input id="taxV" type="number" step="any" value="${vat}"></div><div><label>手續費（佔退稅額 %）</label><input id="taxF" type="number" step="any" value="${fee}"></div></div>
+      <label>最低門檻</label><input id="taxM" type="number" step="any" value="${min}">
+      <div class="big" id="taxO" style="margin-top:10px">—</div><div class="mut" id="taxO2"></div>` : ""}</div>
+      <div class="mut">數字只供估算，實際以店家和退稅公司為準。</div>`;
+  },
+  小費(t) {
+    const cc = ccOf(t), [pcts, note] = TIP[cc] || [[10, 15, 20], "依當地習慣"];
+    const def = pcts.find((p) => p > 0) ?? 0;
+    return `<div class="card"><div class="mut">${esc((TAX[cc] || [cc])[0] || "")} ${esc(note)}</div>
+      <label>帳單金額（${t.cur}）</label><input id="tipB" type="number" inputmode="decimal" step="any">
+      <label>小費 %</label><div class="row">${pcts.map((p) => `<button type="button" class="sm" data-tip="${p}">${p}%</button>`).join("")}<input id="tipP" type="number" step="any" value="${def}" style="width:80px"></div>
+      <label>幾個人分</label><input id="tipN" type="number" inputmode="numeric" value="${t.people.length}">
+      <div id="tipO" style="margin-top:10px"></div></div>`;
+  },
+  外語(t) {
+    const L = filt.lang || defLang(t), [, col, code] = LANGS.find((x) => x[0] === L);
+    return `<div class="chips">${LANGS.map(([n]) => `<button class="${n === L ? "on" : ""}" data-f="lang" data-v="${n}">${n}</button>`).join("")}</div>
+      <div class="mut" style="margin-bottom:6px">點句子會放大給對方看，🔊 可以唸出來</div>
+      ${t.phr.length ? `<h2>我的句子</h2><div class="card">${t.phr.map((p) => `<div class="phr"><div class="sp" data-big="${esc(p.text)}" data-zh="${esc(p.zh)}" data-lang=""><b>${esc(p.text)}</b><div class="mut">${esc(p.zh)}</div></div><button class="sm" data-edit="phr:${p.id}">✎</button></div>`).join("")}</div>` : ""}
+      <h2>常用句</h2><div class="card">${PHRASES.map((p) => `<div class="phr"><div class="sp" data-big="${esc(p[col])}" data-zh="${esc(p[0])}" data-lang="${code}"><b>${esc(p[col])}</b><div class="mut">${esc(p[0])}</div></div><button class="sm" data-say="${esc(p[col])}" data-lang="${code}">🔊</button></div>`).join("")}</div>
+      <div class="mut">按 ＋ 可以新增自己的句子（例如飯店地址、過敏食物）</div>`;
+  },
+  緊急(t) {
+    const cc = ccOf(t), list = SOS[cc] || [["緊急（多數國家通用）", "112"]];
+    return `<h2>${esc((TAX[cc] || [""])[0] || t.loc?.country || "當地")} 緊急電話</h2><div class="card"><table>${list.map(([n, tel]) => `<tr><td>${esc(n)}</td><td class="r big" style="font-size:20px">${telLink(tel)}</td></tr>`).join("")}</table></div>
+      <h2>台灣外交部</h2><div class="card"><table><tr><td>外交部緊急聯絡中心（24小時）</td><td class="r">${telLink("+886-800-085-095")}</td></tr></table>
+      <div class="mut">當地駐外館處電話請到 <a href="https://www.boca.gov.tw/" target="_blank" rel="noopener">外交部領事事務局</a> 查詢後按 ＋ 存下來</div></div>
+      <h2>我的緊急聯絡</h2>${t.emerg.length ? `<div class="card"><table>${t.emerg.map((x) => `<tr data-edit="emerg:${x.id}"><td><b>${esc(x.name)}</b>${x.note ? `<div class="mut" style="white-space:pre-wrap">${esc(x.note)}</div>` : ""}</td><td class="r">${x.tel ? telLink(x.tel) : ""}</td></tr>`).join("")}</table></div>` : `<div class="card mut">按 ＋ 新增：旅平險／海外急難救助電話、信用卡掛失電話、飯店電話、駐外館處…</div>`}`;
+  },
+};
+function toolBind(t) {
+  const sub = filt.tool || "匯率";
+  if (sub === "匯率") return fxBind(t);
+  if (sub === "退稅") {
+    $("#taxCc").onchange = (e) => { filt.taxcc = e.target.value; render(); };
+    const p = $("#taxP"); if (!p) return;
+    const calc = () => {
+      const price = +p.value || 0, vat = +$("#taxV").value || 0, fee = +$("#taxF").value || 0, min = +$("#taxM").value || 0;
+      const back = (price * vat) / (100 + vat) * (1 - fee / 100);
+      $("#taxO").textContent = price ? `可退約 ${fmt(back, 2)} ${t.cur}` : "—";
+      $("#taxO2").innerHTML = price ? `≈ ${fmt(toHome(back, t.cur))} ${t.home}・約售價 ${fmt((back / price) * 100, 1)}%${price < min ? `<br><b style="color:var(--red)">未達門檻 ${fmt(min)}，還差 ${fmt(min - price, 2)}</b>` : ""}` : "";
+    };
+    ["#taxP", "#taxV", "#taxF", "#taxM"].forEach((s) => ($(s).oninput = calc));
+  }
+  if (sub === "小費") {
+    const calc = () => {
+      const b = +$("#tipB").value || 0, pc = +$("#tipP").value || 0, n = Math.max(1, +$("#tipN").value || 1);
+      const tip = (b * pc) / 100, tot = b + tip;
+      $("#tipO").innerHTML = b ? `<table><tr><td>小費</td><td class="r"><b>${fmt(tip, 2)}</b> ${t.cur}</td></tr><tr><td>總額</td><td class="r"><b>${fmt(tot, 2)}</b> ${t.cur}</td></tr>
+        <tr><td>每人（${n}人）</td><td class="r"><b>${fmt(tot / n, 2)}</b> ${t.cur}<div class="mut">≈ ${fmt(toHome(tot / n, t.cur))} ${t.home}</div></td></tr></table>` : "";
+    };
+    ["#tipB", "#tipP", "#tipN"].forEach((s) => ($(s).oninput = calc));
+    document.querySelectorAll("[data-tip]").forEach((b) => (b.onclick = () => { $("#tipP").value = b.dataset.tip; calc(); }));
+  }
+}
+const fabKind = () => S.tab === "fx" ? { 外語: "phr", 緊急: "emerg" }[filt.tool] : SCHEMA[S.tab] ? S.tab : null;
 
 function itinCard(i) {
   return `<div class="card row" data-edit="itin:${i.id}" style="align-items:flex-start"><div class="time">${esc(i.time || "--:--")}</div>
@@ -361,8 +723,11 @@ function render() {
   $("#tripSel").innerHTML = S.trips.map((x) => `<option value="${x.id}" ${x.id === t.id ? "selected" : ""}>${esc(x.name)}</option>`).join("") + `<option value="__new">＋ 新增旅程</option>`;
   $("#nav").innerHTML = TABS.map(([k, ic, n]) => `<button data-tab="${k}" class="${S.tab === k ? "on" : ""}"><b>${ic}</b>${n}</button>`).join("");
   $("#view").innerHTML = V[S.tab](t);
-  $("#fab").style.display = SCHEMA[S.tab] ? "" : "none";
-  if (S.tab === "fx") fxBind(t);
+  $("#fab").style.display = fabKind() ? "" : "none";
+  if (S.tab === "fx") toolBind(t);
+  if (S.tab === "itin" && filt.iv === "地圖") initMap(t);
+  if (S.tab === "exp") $("#ocrIn").onchange = (e) => { const f = e.target.files[0]; if (f) doOcr(f).catch((err) => alert("失敗：" + err.message)); };
+  loadWx(t);
 }
 
 function fxBind(t) {
@@ -373,11 +738,14 @@ function fxBind(t) {
   $("#fxSwap").onclick = (e) => { e.preventDefault(); const la = a.previousElementSibling, lb = b.previousElementSibling; [la.textContent, lb.textContent] = [lb.textContent, la.textContent]; [from, to] = [to, from]; a.oninput(); };
   const c = () => ($("#fxCo").textContent = fmt(($("#fxC").value || 0) * rate($("#fxC1").value, $("#fxC2").value), 4) + " " + $("#fxC2").value);
   $("#fxC").oninput = $("#fxC1").onchange = $("#fxC2").onchange = c; c();
-  a.focus();
 }
 
 // ===== 事件 =====
 document.addEventListener("click", async (e) => {
+  const sy = e.target.closest("[data-say]");
+  if (sy) { e.preventDefault(); return speak(sy.dataset.say, sy.dataset.lang || "en-US"); }
+  const bg = e.target.closest("[data-big]");
+  if (bg) return showBig(bg.dataset.big, bg.dataset.zh, bg.dataset.lang);
   const el = e.target.closest("[data-tab],[data-act],[data-f],[data-edit]");
   if (!el || e.target.closest("a")) return;
   const t = T();
@@ -387,14 +755,21 @@ document.addEventListener("click", async (e) => {
   if (act) {
     e.stopPropagation();
     if (act === "spotdone") { const s = t.spots.find((x) => x.id === id); s.done = !s.done; }
-    else if (act === "spot2itin") { const s = t.spots.find((x) => x.id === id); openForm("itin"); prefill({ title: s.name, place: s.addr || s.name, note: s.note || "" }); return; }
+    else if (act === "spot2itin") { const s = t.spots.find((x) => x.id === id); return openForm("itin", null, null, { title: s.name, place: s.addr || s.name, note: s.note || "", lat: s.lat, lon: s.lon }); }
     else if (act === "tkused") { const k = t.tickets.find((x) => x.id === id); k.used = !k.used; }
-    else if (act === "tkopen") {
-      const k = t.tickets.find((x) => x.id === id), blob = await fget(k.fileId);
+    else if (act === "tkopen" || act === "fopen") {
+      const k = t[el.dataset.k || "tickets"].find((x) => x.id === id), blob = await fget(k.fileId);
       if (!blob) return alert("找不到檔案（可能是在別的裝置上傳的）");
       const w = window.open(URL.createObjectURL(blob), "_blank"); if (!w) location.href = URL.createObjectURL(blob); return;
     }
     else if (act === "fxreload") return loadRates(true);
+    else if (act === "geoall") return geoAll(t);
+    else if (act === "print") return window.print();
+    else if (act === "share") {
+      const txt = itinText(t);
+      if (navigator.share) return navigator.share({ title: t.name, text: txt }).catch(() => {});
+      return navigator.clipboard.writeText(txt).then(() => alert("行程已複製，可以貼到 LINE"), () => prompt("複製下面文字", txt));
+    }
     else if (act === "packtog") { const p = t.pack.find((x) => x.id === id); p.ok = el.checked; }
     else if (act === "packreset") t.pack.forEach((p) => (p.ok = false));
     else if (act === "packdef") t.pack = [["護照", "證件"], ["簽證/入境資料", "證件"], ["信用卡", "證件"], ["外幣現金", "證件"], ["駕照/國際駕照", "證件"], ["上衣", "衣物"], ["褲子", "衣物"], ["內衣褲", "衣物"], ["襪子", "衣物"], ["外套", "衣物"], ["睡衣", "衣物"], ["手機充電器", "電子"], ["行動電源", "電子"], ["轉接頭", "電子"], ["SIM卡/eSIM", "電子"], ["耳機", "電子"], ["牙刷牙膏", "盥洗"], ["保養品", "盥洗"], ["隱形眼鏡", "盥洗"], ["常備藥", "藥品"], ["腸胃藥", "藥品"], ["雨傘", "其他"], ["購物袋", "其他"]].map(([name, cat]) => ({ id: uid(), name, cat }));
@@ -402,9 +777,7 @@ document.addEventListener("click", async (e) => {
   }
   if (el.dataset.edit) { const [k, i] = el.dataset.edit.split(":"); openForm(k, t[k].find((x) => x.id === i)); }
 });
-function prefill(o) { const f = $("#dlgForm"); for (const k in o) if (f.elements[k]) f.elements[k].value = o[k]; }
-
-$("#fab").onclick = () => openForm(S.tab);
+$("#fab").onclick = () => fabKind() && openForm(fabKind());
 $("#tripSel").onchange = (e) => {
   if (e.target.value === "__new") { const n = prompt("旅程名稱"); if (n) { const t = newTrip(n); S.trips.push(t); S.cur = t.id; save(); render(); openSettings(); } else render(); return; }
   S.cur = e.target.value; save(); render();
@@ -417,6 +790,8 @@ function openSettings() {
   f.innerHTML = `<h3>旅程設定</h3>
     <label>名稱</label><input name="name" value="${esc(t.name)}">
     <div class="grid2"><div><label>出發</label><input type="date" name="start" value="${t.start}"></div><div><label>回程</label><input type="date" name="end" value="${t.end}"></div></div>
+    <label>目的地城市（天氣、時鐘、地圖、緊急電話用）</label><input name="city" value="${esc(t.loc ? t.loc.q : "")}" placeholder="例：東京、首爾、Bangkok、Paris">
+    ${t.loc ? `<div class="mut">目前：${esc(t.loc.name)}，${esc(t.loc.country)}（${esc(t.loc.tz)}）</div>` : ""}
     <div class="grid2"><div><label>當地幣別</label><select name="cur">${curOpt(t.cur)}</select></div><div><label>本國幣別</label><select name="home">${curOpt(t.home)}</select></div></div>
     <label>手動匯率（1 當地幣 = ? 本國幣，0 = 自動）</label><input type="number" step="any" name="manualRate" value="${t.manualRate || 0}">
     <label>預算（本國幣，0 = 不設）</label><input type="number" step="any" name="budget" value="${t.budget || 0}">
@@ -468,6 +843,11 @@ function openSettings() {
     t.manualRate = parseFloat(fd.get("manualRate")) || 0; t.budget = parseFloat(fd.get("budget")) || 0;
     const ppl = fd.get("people").split(/[,，]/).map((s) => s.trim()).filter(Boolean);
     t.people = ppl.length ? [...new Set(ppl)] : ["我"];
+    const q = (fd.get("city") || "").trim();
+    if (q !== (t.loc ? t.loc.q : "")) {
+      if (!q) t.loc = null;
+      else geoCity(q).then((l) => { if (!l) return alert(`找不到「${q}」，換個寫法試試（例如英文）`); t.loc = { ...l, q }; save(); render(); }).catch(() => alert("城市查詢失敗（需要網路）"));
+    }
     save(); render();
   };
   dlg.showModal();
