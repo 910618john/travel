@@ -295,12 +295,13 @@ function hoursPicker(v) {
   const h = parseHours(v) || { closed: new Set() }, all = h.open === 0 && h.close === 1440;
   // 認不出來的文字留在「其他說明」
   const extra = h.open != null || h.closed.size
-    ? v.replace(/(\d{1,2})[:：]?(\d{2})\s*[-~〜～–—至到]\s*(\d{1,2})[:：]?(\d{2})/, "").replace(/24\s*(小時|時間|h|hours)/i, "")
+    ? v.replace(/(休息|午休|中休|休憩|空班|準備中|break)\s*[:：]?/gi, "").replace(/(\d{1,2})[:：]?(\d{2})\s*[-~〜～–—至到]\s*(\d{1,2})[:：]?(\d{2})/g, "").replace(/24\s*(小時|時間|h|hours)/i, "")
         .replace(/((?:週|周|星期|禮拜)[一二三四五六日天]|[月火水木金土日]曜日?|\b(?:sun|mon|tue|wed|thu|fri|sat)[a-z]*\.?)[、,，和及\s]*/gi, "")
         .replace(/(定休日?|公休|休館日?|店休|休業|休み|closed|休)[:：]?/gi, "").replace(/^[\s、,，;；()（）:：]+|[\s、,，;；()（）:：]+$/g, "").replace(/\(\s*\)|（\s*）/g, "").trim()
     : v;
   const tv = (m) => (m == null ? "" : hm(m % 1440));
   return `<div class="hrs"><div class="row" style="flex-wrap:nowrap"><input type="time" name="h_o" step="900" value="${all ? "" : tv(h.open)}" aria-label="開門"><span class="mut">～</span><input type="time" name="h_c" step="900" value="${all ? "" : tv(h.close)}" aria-label="關門"></div>
+    <div class="row" style="margin-top:6px;flex-wrap:nowrap"><span class="mut" style="white-space:nowrap">中間休息<br>(空班)</span><input type="time" name="h_bs" step="900" value="${h.breaks && h.breaks[0] ? hm(h.breaks[0][0]) : ""}" aria-label="休息開始"><span class="mut">～</span><input type="time" name="h_be" step="900" value="${h.breaks && h.breaks[0] ? hm(h.breaks[0][1]) : ""}" aria-label="休息結束"></div>
     <div class="row" style="margin-top:6px;gap:4px"><span class="mut">公休</span>${WDS.map(([d, n]) => `<label class="wd"><input type="checkbox" name="h_off" value="${d}" ${h.closed.has(d) ? "checked" : ""}><span>${n}</span></label>`).join("")}
       <label style="margin:0 0 0 6px"><input type="checkbox" name="h_24" style="width:auto" ${all ? "checked" : ""}> 24 小時</label></div>
     <input name="h_x" placeholder="其他說明(選填，例：最後點餐 20:30)" value="${esc(extra)}" style="margin-top:6px"></div>`;
@@ -308,7 +309,8 @@ function hoursPicker(v) {
 function hoursCompose(fd) {
   const o = fd.get("h_o"), c = fd.get("h_c"), off = fd.getAll("h_off").map(Number), x = (fd.get("h_x") || "").trim();
   const parts = [];
-  if (fd.has("h_24")) parts.push("24小時"); else if (o && c) parts.push(`${o}-${c}`);
+  const bs = fd.get("h_bs"), be = fd.get("h_be");
+  if (fd.has("h_24")) parts.push("24小時"); else if (o && c) parts.push(`${o}-${c}` + (bs && be ? ` 休息${bs}-${be}` : ""));
   if (off.length) parts.push(WDS.filter(([d]) => off.includes(d)).map(([, n]) => "週" + n).join("、") + "休");
   if (x) parts.push(x);
   return parts.join(" ");
@@ -1052,8 +1054,17 @@ function weekdaysIn(w) {
 function parseHours(s) {
   if (!s) return null;
   const r = { closed: new Set() };
-  const m = s.match(/(\d{1,2})[:：]?(\d{2})\s*[-~〜～–—至到]\s*(\d{1,2})[:：]?(\d{2})/);
-  if (m) { r.open = +m[1] * 60 + +m[2]; r.close = +m[3] * 60 + +m[4]; if (r.close <= r.open) r.close += 1440; }
+  // 可能有好幾段: "11:30-14:00, 17:00-22:00" 或 "11:30-22:00 休息14:00-17:00"(中間休息=空班)
+  const rs = [...s.matchAll(/(\d{1,2})[:：]?(\d{2})\s*[-~〜～–—至到]\s*(\d{1,2})[:：]?(\d{2})/g)].map((m) => {
+    const a = +m[1] * 60 + +m[2]; let b = +m[3] * 60 + +m[4]; if (b <= a) b += 1440;
+    return { a, b, brk: /(休息|午休|中休|休憩|空班|準備中|break)\s*[:：]?\s*$/i.test(s.slice(Math.max(0, m.index - 6), m.index)) };
+  });
+  const opens = rs.filter((x) => !x.brk).sort((x, y) => x.a - y.a);
+  if (opens.length) {
+    r.open = opens[0].a; r.close = Math.max(...opens.map((x) => x.b));
+    r.breaks = rs.filter((x) => x.brk).map((x) => [x.a, x.b]);
+    for (let k = 1; k < opens.length; k++) if (opens[k].a > opens[k - 1].b) r.breaks.push([opens[k - 1].b, opens[k].a]);
+  }
   if (/24\s*(小時|時間|h|hours)/i.test(s)) { r.open = 0; r.close = 1440; }
   for (const mm of s.matchAll(/公休|定休日?|休館日?|店休|休業|休み|closed|休/gi)) weekdaysIn(s.slice(Math.max(0, mm.index - 12), mm.index + mm[0].length + 10)).forEach((d) => r.closed.add(d));
   return r.open != null || r.closed.size ? r : null;
@@ -1071,6 +1082,10 @@ function hoursWarn(i, t) {
     const tt = tm < h.open && tm + 1440 < h.close ? tm + 1440 : tm;
     if (tt < h.open) return `⚠️ ${hm(h.open)} 才開`;
     if (tt >= h.close) return `⚠️ ${hm(h.close)} 已打烊`;
+    for (const [bs, be] of h.breaks || []) {
+      if (tt >= bs && tt < be) return `⚠️ ${hm(bs)}–${hm(be)} 休息中`;
+      if (tt >= bs - 30 && tt < bs) return `⚠️ ${hm(bs)} 開始休息`;
+    }
     if (tt >= h.close - 45) return `⚠️ 快打烊（${hm(h.close)}）`;
   }
   return "";
