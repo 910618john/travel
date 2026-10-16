@@ -103,6 +103,37 @@ body.off #offline{display:block}
 .wd input{position:absolute;opacity:0;width:1px;height:1px}
 .wd span{display:inline-block;min-width:30px;text-align:center;border:1px solid var(--line);border-radius:16px;padding:3px 6px;color:var(--fg);cursor:pointer}
 .wd input:checked+span{background:var(--red);border-color:var(--red);color:#fff}
+.chips.tight{gap:4px}.chips.tight button{padding:5px 7px;font-size:calc(13px*var(--fz,1))}
+.hrs input[type=time]{flex:1;min-width:0}
+dialog form{overflow-x:hidden}
+/* 手機: 字和按鈕放大, 表單改成底部滑出的全寬面板 */
+@media (max-width:600px){
+  body{font-size:calc(16px*var(--fz,1))}
+  .mut{font-size:calc(14px*var(--fz,1))}
+  label{font-size:calc(14px*var(--fz,1))}
+  button,.btn{font-size:calc(15px*var(--fz,1));padding:9px 14px}
+  .sm{font-size:calc(14px*var(--fz,1));padding:7px 12px}
+  .chips button{padding:8px 13px}
+  .chips.tight{display:grid;grid-template-columns:repeat(5,1fr);width:100%;gap:4px;overflow:visible}
+  .chips.tight button{padding:7px 2px;font-size:calc(13px*var(--fz,1));border-radius:10px;text-align:center;white-space:nowrap;position:relative}
+  .chips.tight .badge{position:absolute;top:-6px;right:-2px}
+  nav button{font-size:calc(12px*var(--fz,1));padding:8px 2px}
+  nav button b{font-size:calc(23px*var(--fz,1))}
+  h2{font-size:calc(18px*var(--fz,1))}
+  h3{font-size:calc(16px*var(--fz,1))}
+  .tag{font-size:calc(13px*var(--fz,1));padding:2px 10px}
+  dialog{width:100vw;max-width:100vw;margin:auto 0 0;border-radius:18px 18px 0 0}
+  dialog form{max-height:90vh}
+  .wd span{min-width:34px;padding:6px 8px}
+  .cale{font-size:calc(14px*var(--fz,1))}
+  .calt{font-size:calc(12px*var(--fz,1))}
+  input[type=checkbox]{width:20px!important;height:20px}
+}
+/* 表單按鈕: 儲存加大, 並固定在視窗底部(長表單也不用往下捲) */
+#dlgForm>.row:last-child{position:sticky;bottom:-16px;background:var(--card);margin:14px -16px -16px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--line);z-index:2}
+#dlgForm>.row:last-child button{padding:10px 18px;font-size:calc(16px*var(--fz,1));border-radius:10px}
+#dlgForm>.row:last-child button.pri{padding:12px 30px;font-weight:700;min-width:110px}
+.badge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--red);color:#fff;font-size:calc(11px*var(--fz,1));line-height:18px;text-align:center}
 .calrs{position:absolute;left:0;right:0;bottom:0;height:9px;cursor:ns-resize}
 .calrs::after{content:"";position:absolute;left:50%;bottom:3px;width:24px;height:3px;margin-left:-12px;border-radius:2px;background:var(--cc,var(--acc));opacity:.7}
 .cale{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
@@ -301,7 +332,7 @@ function hoursPicker(v) {
     : v;
   const tv = (m) => (m == null ? "" : hm(m % 1440));
   return `<div class="hrs"><div class="row" style="flex-wrap:nowrap"><input type="time" name="h_o" step="900" value="${all ? "" : tv(h.open)}" aria-label="開門"><span class="mut">～</span><input type="time" name="h_c" step="900" value="${all ? "" : tv(h.close)}" aria-label="關門"></div>
-    <div class="row" style="margin-top:6px;flex-wrap:nowrap"><span class="mut" style="white-space:nowrap">中間休息<br>(空班)</span><input type="time" name="h_bs" step="900" value="${h.breaks && h.breaks[0] ? hm(h.breaks[0][0]) : ""}" aria-label="休息開始"><span class="mut">～</span><input type="time" name="h_be" step="900" value="${h.breaks && h.breaks[0] ? hm(h.breaks[0][1]) : ""}" aria-label="休息結束"></div>
+    <div class="mut" style="margin-top:8px">中間休息（空班，選填）</div><div class="row" style="flex-wrap:nowrap"><input type="time" name="h_bs" step="900" value="${h.breaks && h.breaks[0] ? hm(h.breaks[0][0]) : ""}" aria-label="休息開始"><span class="mut">～</span><input type="time" name="h_be" step="900" value="${h.breaks && h.breaks[0] ? hm(h.breaks[0][1]) : ""}" aria-label="休息結束"></div>
     <div class="row" style="margin-top:6px;gap:4px"><span class="mut">公休</span>${WDS.map(([d, n]) => `<label class="wd"><input type="checkbox" name="h_off" value="${d}" ${h.closed.has(d) ? "checked" : ""}><span>${n}</span></label>`).join("")}
       <label style="margin:0 0 0 6px"><input type="checkbox" name="h_24" style="width:auto" ${all ? "checked" : ""}> 24 小時</label></div>
     <input name="h_x" placeholder="其他說明(選填，例：最後點餐 20:30)" value="${esc(extra)}" style="margin-top:6px"></div>`;
@@ -1378,6 +1409,12 @@ function calHtml(t) {
   for (const i of banners) { const k = spanDates(i.date, d).length, N = nights(i);
     h += `<div class="calban c-${icatOf(i)}" data-edit="itin:${i.id}">${icatIcon(icatOf(i))} <b>${esc(i.title)}</b><span class="mut">・${icatOf(i) === "住宿" ? `第 ${k} 晚／共 ${N} 晚` : `第 ${k} 天／共 ${N + 1} 天`}・${i.date.slice(5)}～${i.endDate.slice(5)}</span></div>`; }
   if (wh && !wh._iid) h += `<div class="mut" style="margin-bottom:6px">🏨 從 <b>${esc(wh.title)}</b> 出發</div>`;
+  const us = unsched(t);
+  if (us.length) {
+    const open = filt.uso !== false;
+    h += `<div class="card noprint" style="padding:8px 10px"><div class="row" data-act="usotog"><b class="sp">📍 待排景點 ${us.length}</b><span class="mut">${open ? "收起 ▲" : "展開 ▼"}</span></div>
+      ${open ? us.map((sp) => { const slot = freeSlot(t, d, sp); return `<div class="row" style="padding:5px 0;border-top:1px solid var(--line)"><span class="sp">${icatIcon({ 美食: "美食", 咖啡: "美食", 購物: "購物" }[sp.cat] || "景點")} ${esc(sp.name)} <span class="mut">${esc(sp.prio || "")}${sp.hours ? "・" + esc(sp.hours) : ""}</span></span>${slot ? `<button class="sm pri" data-act="usadd" data-id="${sp.id}" data-tm="${slot}">＋ ${slot}</button>` : '<span class="mut">今天排不進</span>'}</div>`; }).join("") : ""}</div>`;
+  }
   if (untimed.length) h += `<div class="card" style="padding:8px 10px"><div class="mut" style="margin-bottom:4px">未排時間（編輯時填時間就會排進下面）</div>${untimed.map((i) => `<div class="calu" data-edit="itin:${i.id}">${icatIcon(icatOf(i))} ${i._lbl ? `<b>${i._lbl}</b> ` : ""}${esc(i.title)}</div>`).join("")}</div>`;
   const nowM = d === today() ? new Date().getHours() * 60 + new Date().getMinutes() : null;
   h += `<div class="cal" style="height:${(hi - lo) * HPX}px" data-act="calnew" data-lo="${lo}">`;
@@ -1441,6 +1478,21 @@ document.addEventListener("pointerdown", (e) => {
 // 拖移中不要讓頁面跟著捲
 document.addEventListener("touchmove", (e) => { if (calDrag.on) e.preventDefault(); }, { passive: false });
 document.addEventListener("contextmenu", (e) => { if (e.target.closest && e.target.closest("[data-cdrag]")) e.preventDefault(); });
+// 還沒排進行程、也還沒去過的景點(必去優先)
+function unsched(t) {
+  const used = new Set(t.itin.flatMap((i) => [i.spotId, i.title]).filter(Boolean)), pr = { 必去: 0, 想去: 1, 有空再去: 2 };
+  return t.spots.filter((s) => !s.done && !used.has(s.id) && !used.has(s.name)).sort((a, b) => (pr[a.prio] ?? 1) - (pr[b.prio] ?? 1));
+}
+// 找當天第一個 90 分鐘空檔(避開已排行程、店家沒開的時間), 從 9:00 找到 21:00
+function freeSlot(t, d, sp) {
+  const busy = t.itin.filter((i) => i.date === d && i.time).map((i) => { const s = toMin(i.time); let e = toMin(i.end); if (e == null || e <= s) e = s + 60; return [s, e]; });
+  for (let m = 9 * 60; m <= 21 * 60; m += 30) {
+    if (busy.some(([s, e]) => m < e && m + 90 > s)) continue;
+    if (hoursWarn({ date: d, time: hm(m), hours: sp.hours }, t)) continue;
+    return hm(m);
+  }
+  return "";
+}
 // 第一次打開某一天: 捲到現在時間或第一個行程
 function calScroll() {
   const cal = $(".cal"); if (!cal || calScroll.done === filt.cd) return;
@@ -1450,12 +1502,13 @@ function calScroll() {
 }
 
 // ===== 畫面 =====
-const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["spots", "📍", "景點"], ["books", "✈️", "訂位"], ["tickets", "🎫", "票券"], ["exp", "💰", "花費"], ["fx", "🧰", "工具"], ["pack", "📝", "清單"]];
+const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["books", "✈️", "訂位"], ["tickets", "🎫", "票券"], ["exp", "💰", "花費"], ["fx", "🧰", "工具"], ["pack", "📝", "清單"]];
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
 const dayName = (d) => d ? ["日", "一", "二", "三", "四", "五", "六"][new Date(d + "T00:00").getDay()] : "";
 const dt = (s) => s ? s.replace("T", " ") : "";
 const UI_KEYS = ["iv", "tool", "pk", "ex", "pm", "pg", "sv"];
 // 新版行程預設用行事曆; 以前停在「清單」的也切過去一次
+if (S.tab === "spots") { S.tab = "itin"; S.ui = { ...(S.ui || {}), iv: "景點" }; }
 if (S.ui && !S.ui.cal1) { if (S.ui.iv === "清單") S.ui.iv = "行事曆"; S.ui.cal1 = 1; }
 let filt = { ...(S.ui || {}) };
 
@@ -1502,9 +1555,10 @@ const V = {
   },
   itin(t) {
     const mode = filt.iv || "行事曆";
-    let h = `<div class="row noprint" style="margin-bottom:8px"><div class="chips" style="margin:0">${["行事曆", "清單", "地圖", "日記"].map((m) => `<button class="${m === mode ? "on" : ""}" data-f="iv" data-v="${m}">${{ 行事曆: "🕘", 清單: "📋", 地圖: "🗺", 日記: "📔" }[m]} ${m}</button>`).join("")}</div><span class="sp"></span>
+    let h = `<div class="row noprint" style="margin-bottom:8px"><div class="chips tight" style="margin:0">${["行事曆", "清單", "景點", "地圖", "日記"].map((m) => `<button class="${m === mode ? "on" : ""}" data-f="iv" data-v="${m}">${{ 行事曆: "🕘", 清單: "📋", 景點: "📍", 地圖: "🗺", 日記: "📔" }[m]} ${m}${m === "景點" && unsched(t).length ? ` <span class="badge">${unsched(t).length}</span>` : ""}</button>`).join("")}</div><span class="sp"></span>
       ${mode === "清單" ? '<button class="sm" data-act="share">分享</button><button class="sm" data-act="print">列印/PDF</button>' : ""}</div>`;
     if (mode === "日記") return h + diaryHtml(t);
+    if (mode === "景點") return h + `<div class="mut" style="margin-bottom:6px">想去的地方先收在這裡，按「加入行程」或在行事曆裡「排進今天」</div>` + V.spots(t);
     if (mode === "行事曆") return h + calHtml(t);
     if (mode === "地圖") {
       const dates = [...new Set(t.itin.map((i) => i.date).filter(Boolean))].sort();
@@ -1516,7 +1570,7 @@ const V = {
         <div class="row" style="margin-top:6px"><button class="sm" data-act="premap" id="preBtn">🗺 出發前預存地圖</button><span class="mut sp">有網路時自動逐日看一遍，看過的區域離線也能看</span></div>
         <div class="row" style="margin-top:8px"><span class="mut sp">數字＝當天行程順序・🏨＝住宿・橘／紅點＝景點（紅＝必去）${fail ? `・${fail} 個找不到位置` : ""}</span>${miss ? `<button class="sm pri" id="geoBtn" data-act="geoall">📍 定位 ${miss} 個地點</button>` : ""}</div>`;
     }
-    if (!t.itin.length) return h + `<div class="empty">還沒有行程，按 ＋ 新增<br>或到「景點」把想去的加進來</div>`;
+    if (!t.itin.length) return h + `<div class="empty">還沒有行程，按 ＋ 新增<br>或到上方「📍 景點」把想去的加進來</div>`;
     const by = {};
     t.itin.forEach((i) => (by[i.date || "未定"] ||= []).push(i));
     const startD = t.start ? new Date(t.start + "T00:00") : null;
@@ -1672,7 +1726,7 @@ function toolBind(t) {
     document.querySelectorAll("[data-tip]").forEach((b) => (b.onclick = () => { $("#tipP").value = b.dataset.tip; calc(); }));
   }
 }
-const fabKind = () => S.tab === "itin" && filt.iv === "日記" ? null : S.tab === "fx" ? { 外語: "phr", 緊急: "emerg" }[filt.tool] : S.tab === "pack" ? { 必買: "shop", 行李: "pack" }[filt.pk || "必買"] : SCHEMA[S.tab] ? S.tab : null;
+const fabKind = () => S.tab === "itin" && filt.iv === "日記" ? null : S.tab === "itin" && filt.iv === "景點" ? "spots" : S.tab === "fx" ? { 外語: "phr", 緊急: "emerg" }[filt.tool] : S.tab === "pack" ? { 必買: "shop", 行李: "pack" }[filt.pk || "必買"] : SCHEMA[S.tab] ? S.tab : null;
 
 function shopHtml(t) {
   if (!t.shop.length) return `<div class="empty">必買清單是空的，按 ＋ 新增<br>可以附商品照片，到店裡直接給店員看</div>`;
@@ -1793,6 +1847,11 @@ document.addEventListener("click", async (e) => {
     else if (act === "geoall") return geoAll(t);
     else if (act === "premap") return preMap(t);
     else if (act === "calprev" || act === "calnext") { const ds = calDays(t), k = ds.indexOf(filt.cd) + (act === "calnext" ? 1 : -1); if (ds[k]) filt.cd = ds[k]; calScroll.done = null; return render(); }
+    else if (act === "usotog") { filt.uso = filt.uso === false; return render(); }
+    else if (act === "usadd") {
+      const sp = t.spots.find((x) => x.id === id), tm = el.dataset.tm, e2 = hm(Math.min(toMin(tm) + 90, 23 * 60 + 59));
+      return openForm("itin", null, null, { date: filt.cd, time: tm, end: e2, title: sp.name, place: sp.addr || sp.name, note: sp.note || "", lat: sp.lat, lon: sp.lon, spotId: sp.id, cat: { 美食: "美食", 咖啡: "美食", 購物: "購物" }[sp.cat] || "景點" });
+    }
     else if (act === "calnew") {
       const r = el.getBoundingClientRect(), m = +el.dataset.lo * 60 + Math.floor(((e.clientY - r.top) / HPX) * 2) * 30;
       const hh = String(Math.floor(m / 60) % 24).padStart(2, "0"), mm = String(m % 60).padStart(2, "0");
@@ -1931,9 +1990,9 @@ function openSearch() {
     const h = e.target.closest("[data-hit]"); if (!h) return;
     const [kind, id] = h.dataset.hit.split(":"), x = t[kind].find((y) => y.id === id);
     dlg.close("cancel");
-    const tab = { itin: "itin", spots: "spots", books: "books", tickets: "tickets", exp: "exp", shop: "pack", diary: "itin", emerg: "fx" }[kind];
+    const tab = { itin: "itin", spots: "itin", books: "books", tickets: "tickets", exp: "exp", shop: "pack", diary: "itin", emerg: "fx" }[kind];
     if (kind === "diary") { filt.iv = "日記"; goTab("itin"); return setTimeout(() => openDiary(t, x.date), 50); }
-    if (kind === "shop") filt.pk = "必買"; if (kind === "emerg") filt.tool = "緊急"; if (kind === "exp") filt.ex = "記帳"; if (kind === "itin") filt.iv = "清單";
+    if (kind === "shop") filt.pk = "必買"; if (kind === "emerg") filt.tool = "緊急"; if (kind === "exp") filt.ex = "記帳"; if (kind === "itin") filt.iv = "清單"; if (kind === "spots") filt.iv = "景點";
     goTab(tab); setTimeout(() => openForm(kind, x), 50);
   };
   dlg.showModal(); setTimeout(() => q.focus(), 50);
