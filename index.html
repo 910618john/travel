@@ -137,6 +137,10 @@ dialog form{overflow-x:hidden}
 .calrs{position:absolute;left:0;right:0;bottom:0;height:9px;cursor:ns-resize}
 .calrs::after{content:"";position:absolute;left:50%;bottom:3px;width:24px;height:3px;margin-left:-12px;border-radius:2px;background:var(--cc,var(--acc));opacity:.7}
 .cale{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.usrow{touch-action:pan-y;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;cursor:grab}
+.usrow .handle{margin:0 4px 0 0}
+.dragghost{position:fixed;width:140px;height:auto;padding:6px 8px;z-index:50;pointer-events:none;box-shadow:0 8px 20px #0006;border-radius:8px}
+.calprev{opacity:.85;outline:2px dashed var(--cc);z-index:4;pointer-events:none}
 .caldrag{z-index:5;box-shadow:0 6px 18px #0006;opacity:.92}
 .calban{border-left:4px solid var(--cc);background:color-mix(in srgb,var(--cc) 18%,var(--card));border-radius:8px;padding:6px 10px;margin-bottom:6px}
 .shopgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:10px}
@@ -1412,8 +1416,8 @@ function calHtml(t) {
   const us = unsched(t);
   if (us.length) {
     const open = filt.uso !== false;
-    h += `<div class="card noprint" style="padding:8px 10px"><div class="row" data-act="usotog"><b class="sp">📍 待排景點 ${us.length}</b><span class="mut">${open ? "收起 ▲" : "展開 ▼"}</span></div>
-      ${open ? us.map((sp) => { const slot = freeSlot(t, d, sp); return `<div class="row" style="padding:5px 0;border-top:1px solid var(--line)"><span class="sp">${icatIcon({ 美食: "美食", 咖啡: "美食", 購物: "購物" }[sp.cat] || "景點")} ${esc(sp.name)} <span class="mut">${esc(sp.prio || "")}${sp.hours ? "・" + esc(sp.hours) : ""}</span></span>${slot ? `<button class="sm pri" data-act="usadd" data-id="${sp.id}" data-tm="${slot}">＋ ${slot}</button>` : '<span class="mut">今天排不進</span>'}</div>`; }).join("") : ""}</div>`;
+    h += `<div class="card noprint" style="padding:8px 10px"><div class="row" data-act="usotog"><b class="sp">📍 待排景點 ${us.length} <span class="mut" style="font-weight:400">・${matchMedia("(pointer:coarse)").matches ? "長按" : "按住"}拖到下面的時間</span></b><span class="mut">${open ? "收起 ▲" : "展開 ▼"}</span></div>
+      ${open ? us.map((sp) => { const slot = freeSlot(t, d, sp); return `<div class="row usrow" data-sdrag="${sp.id}" style="padding:5px 0;border-top:1px solid var(--line)"><span class="handle" title="拖到下面的時間">⠿</span><span class="sp">${icatIcon({ 美食: "美食", 咖啡: "美食", 購物: "購物" }[sp.cat] || "景點")} ${esc(sp.name)} <span class="mut">${esc(sp.prio || "")}${sp.hours ? "・" + esc(sp.hours) : ""}</span></span>${slot ? `<button class="sm pri" data-act="usadd" data-id="${sp.id}" data-tm="${slot}">＋ ${slot}</button>` : '<span class="mut">今天排不進</span>'}</div>`; }).join("") : ""}</div>`;
   }
   if (untimed.length) h += `<div class="card" style="padding:8px 10px"><div class="mut" style="margin-bottom:4px">未排時間（編輯時填時間就會排進下面）</div>${untimed.map((i) => `<div class="calu" data-edit="itin:${i.id}">${icatIcon(icatOf(i))} ${i._lbl ? `<b>${i._lbl}</b> ` : ""}${esc(i.title)}</div>`).join("")}</div>`;
   const nowM = d === today() ? new Date().getHours() * 60 + new Date().getMinutes() : null;
@@ -1475,9 +1479,60 @@ document.addEventListener("pointerdown", (e) => {
   };
   addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", end);
 });
+// 待排景點拖進行事曆: 放開的位置就是開始時間(15 分鐘一格), 預設 1.5 小時
+document.addEventListener("pointerdown", (e) => {
+  const row = e.target.closest && e.target.closest("[data-sdrag]"); if (!row || e.target.closest("button") || e.button > 0) return;
+  const t = T(), sp = t.spots.find((x) => x.id === row.dataset.sdrag); if (!sp) return;
+  const st = { pid: e.pointerId, y0: e.clientY, x0: e.clientX, active: false, armed: e.pointerType === "mouse" };
+  const DUR = 90, SNAP = HPX / 4, cat = { 美食: "美食", 咖啡: "美食", 購物: "購物" }[sp.cat] || "景點";
+  let ghost, prev, minute = null;
+  const activate = () => {
+    st.active = calDrag.on = true; navigator.vibrate && navigator.vibrate(15);
+    ghost = document.createElement("div"); ghost.className = `cale c-${cat} dragghost`; ghost.innerHTML = `<b>${icatIcon(cat)} ${esc(sp.name)}</b>`;
+    document.body.appendChild(ghost);
+    const cal = $(".cal"); if (cal) { prev = document.createElement("div"); prev.className = `cale c-${cat} calprev`; prev.style.display = "none"; cal.appendChild(prev); }
+  };
+  if (!st.armed) st.timer = setTimeout(() => { st.armed = true; activate(); place(st.lx ?? st.x0, st.ly ?? st.y0); }, 350);
+  const place = (x, y) => {
+    ghost.style.left = x - 70 + "px"; ghost.style.top = y - 18 + "px";
+    const cal = $(".cal"); if (!cal || !prev) return;
+    const r = cal.getBoundingClientRect();
+    if (x < r.left - 40 || x > r.right || y < r.top || y > r.bottom) { prev.style.display = "none"; minute = null; ghost.style.opacity = 1; return; }
+    const top = Math.max(0, Math.min(r.height - SNAP, Math.round((y - r.top) / SNAP) * SNAP));
+    minute = +cal.dataset.lo * 60 + Math.round((top / HPX) * 60);
+    const w = hoursWarn({ date: filt.cd, time: hm(minute), hours: sp.hours }, t);
+    prev.style.cssText = `top:${top}px;height:${(DUR / 60) * HPX - 3}px;left:2px;width:calc(100% - 4px)`;
+    prev.classList.toggle("warn", !!w);
+    prev.innerHTML = `<div class="calt">${hm(minute)}–${hm(minute + DUR)}</div><b>${icatIcon(cat)} ${esc(sp.name)}</b>${w ? `<div style="color:var(--warn)">${w}</div>` : ""}`;
+    ghost.style.opacity = 0.35;
+  };
+  const move = (ev) => {
+    if (ev.pointerId !== st.pid) return;
+    st.lx = ev.clientX; st.ly = ev.clientY;
+    const d = Math.hypot(ev.clientX - st.x0, ev.clientY - st.y0);
+    if (!st.active) { if (st.armed && d > 4) activate(); else if (!st.armed && d > 8) return end(); if (!st.active) return; }
+    if (ev.clientY < 90) scrollBy(0, -12); else if (ev.clientY > innerHeight - 100) scrollBy(0, 12);
+    place(ev.clientX, ev.clientY);
+  };
+  const end = () => {
+    clearTimeout(st.timer); calDrag.on = false;
+    removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", end);
+    ghost && ghost.remove(); prev && prev.remove();
+  };
+  const up = () => {
+    const ok = st.active && minute != null; end();
+    if (!st.active) return;
+    calDrag.until = Date.now() + 120;
+    if (!ok) return;
+    const it = { id: uid(), date: filt.cd, time: hm(minute), end: hm(Math.min(minute + DUR, 23 * 60 + 59)), title: sp.name, place: sp.addr || sp.name, note: sp.note || "", lat: sp.lat, lon: sp.lon, spotId: sp.id, cat };
+    t.itin.push(it); placeByTime(t, it); save(); render();
+    toast(`已排入 ${it.time} ${sp.name}`, "復原", () => { t.itin = t.itin.filter((x) => x !== it); save(); render(); });
+  };
+  addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", end);
+});
 // 拖移中不要讓頁面跟著捲
 document.addEventListener("touchmove", (e) => { if (calDrag.on) e.preventDefault(); }, { passive: false });
-document.addEventListener("contextmenu", (e) => { if (e.target.closest && e.target.closest("[data-cdrag]")) e.preventDefault(); });
+document.addEventListener("contextmenu", (e) => { if (e.target.closest && e.target.closest("[data-cdrag],[data-sdrag]")) e.preventDefault(); });
 // 還沒排進行程、也還沒去過的景點(必去優先)
 function unsched(t) {
   const used = new Set(t.itin.flatMap((i) => [i.spotId, i.title]).filter(Boolean)), pr = { 必去: 0, 想去: 1, 有空再去: 2 };
