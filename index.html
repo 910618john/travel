@@ -133,6 +133,7 @@ dialog form{overflow-x:hidden}
 #dlgForm>.row:last-child{position:sticky;bottom:-16px;background:var(--card);margin:14px -16px -16px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--line);z-index:2}
 #dlgForm>.row:last-child button{padding:10px 18px;font-size:calc(16px*var(--fz,1));border-radius:10px}
 #dlgForm>.row:last-child button.pri{padding:12px 30px;font-weight:700;min-width:110px}
+.cptag{background:color-mix(in srgb,var(--warn) 25%,transparent);color:var(--fg);cursor:pointer;font-weight:600}
 .badge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--red);color:#fff;font-size:calc(11px*var(--fz,1));line-height:18px;text-align:center}
 .calrs{position:absolute;left:0;right:0;bottom:0;height:9px;cursor:ns-resize}
 .calrs::after{content:"";position:absolute;left:50%;bottom:3px;width:24px;height:3px;margin-left:-12px;border-radius:2px;background:var(--cc,var(--acc));opacity:.7}
@@ -186,7 +187,7 @@ const today = () => new Date().toLocaleDateString("sv");
 
 function newTrip(name) {
   return { id: uid(), name: name || "新旅程", start: "", end: "", home: "TWD", cur: "JPY", people: ["我"], budget: 0, manualRate: 0,
-    itin: [], spots: [], books: [], tickets: [], exp: [], pack: [], emerg: [], phr: [], loc: null, wallet: [], prep: {}, shop: [], diary: [] };
+    itin: [], spots: [], books: [], tickets: [], exp: [], pack: [], emerg: [], phr: [], loc: null, wallet: [], prep: {}, shop: [], diary: [], coupons: [] };
 }
 let S;
 try { S = JSON.parse(localStorage.getItem(KEY)); } catch (e) { S = null; }
@@ -306,6 +307,7 @@ const SCHEMA = {
   spots: [["name", "名稱", "text", 1], ["cat", "分類", "select", 0, SPOT_CATS], ["city", "城市/區域", "text"], ["addr", "地址或地圖連結", "text"], ["hours", "營業時間(排進行程會自動檢查)", "hours"], ["price", "門票/預算", "text"], ["prio", "優先", "select", 0, ["必去", "想去", "有空再去"]], ["note", "備註", "textarea"]],
   books: [["type", "類型", "select", 0, BOOK_TYPES], ["title", "名稱(航班號/飯店名)", "text", 1], ["from", "出發地/地址", "text"], ["to", "目的地", "text"], ["start", "開始(起飛/入住)", "datetime-local"], ["end", "結束(抵達/退房)", "datetime-local"], ["code", "訂位代號", "text"], ["seat", "座位/房型", "text"], ["price", "金額", "number"], ["cur", "幣別", "cur"], ["paid", "已付款", "check"], ["note", "備註", "textarea"]],
   tickets: [["cat", "分類", "select", 0, TK_CATS], ["title", "名稱", "text", 1], ["date", "使用日期", "date"], ["code", "號碼/QR內容", "text"], ["file", "檔案(PDF/截圖)", "file"], ["used", "已使用", "check"], ["note", "備註", "textarea"]],
+  coupons: [["title", "優惠名稱", "text", 1], ["store", "適用店家(多家用逗號分隔，例：唐吉訶德, BicCamera)", "text"], ["deal", "優惠內容(例：免稅再 10% off)", "text"], ["code", "折扣碼／條碼號碼", "text"], ["minSpend", "使用條件(例：滿 ¥10,000)", "text"], ["expire", "有效期限", "date"], ["file", "優惠券圖片(截圖／QR Code)", "file"], ["used", "已使用", "check"], ["note", "備註", "textarea"]],
   exp: [["date", "日期", "date"], ["cat", "分類", "select", 0, EXP_CATS], ["amt", "金額", "number", 1], ["cur", "幣別", "cur"], ["note", "項目", "text"], ["store", "店家(退稅／報帳用，選填)", "text"], ["payer", "誰付", "payer"], ["split", "分攤", "split"], ["pay", "付款方式", "select", 0, ["現金", "信用卡", "交通卡", "行動支付"]], ["file", "收據照片", "file"], ["tf", "可退稅", "check"], ["claim", "要報帳", "check"]],
   emerg: [["name", "名稱(保險/信用卡/飯店/駐外館處…)", "text", 1], ["tel", "電話", "tel"], ["note", "備註(保單號、卡號末四碼…)", "textarea"]],
   phr: [["text", "要給對方看的句子(外文)", "textarea", 1], ["zh", "中文意思", "text"]],
@@ -317,6 +319,7 @@ const DEFAULTS = {
   books: () => ({ type: "機票", cur: T().home }),
   spots: () => ({ cat: "景點", prio: "想去" }),
   tickets: () => ({ cat: "門票" }),
+  coupons: () => ({}),
   pack: () => ({ cat: "其他", bag: "托運", qty: 1 }),
   emerg: () => ({}),
   wallet: () => ({ date: today(), cur: T().cur }),
@@ -1417,7 +1420,7 @@ function calHtml(t) {
   if (us.length) {
     const open = filt.uso !== false;
     h += `<div class="card noprint" style="padding:8px 10px"><div class="row" data-act="usotog"><b class="sp">📍 待排景點 ${us.length} <span class="mut" style="font-weight:400">・${matchMedia("(pointer:coarse)").matches ? "長按" : "按住"}拖到下面的時間</span></b><span class="mut">${open ? "收起 ▲" : "展開 ▼"}</span></div>
-      ${open ? us.map((sp) => { const slot = freeSlot(t, d, sp); return `<div class="row usrow" data-sdrag="${sp.id}" style="padding:5px 0;border-top:1px solid var(--line)"><span class="handle" title="拖到下面的時間">⠿</span><span class="sp">${icatIcon({ 美食: "美食", 咖啡: "美食", 購物: "購物" }[sp.cat] || "景點")} ${esc(sp.name)} <span class="mut">${esc(sp.prio || "")}${sp.hours ? "・" + esc(sp.hours) : ""}</span></span>${slot ? `<button class="sm pri" data-act="usadd" data-id="${sp.id}" data-tm="${slot}">＋ ${slot}</button>` : '<span class="mut">今天排不進</span>'}</div>`; }).join("") : ""}</div>`;
+      ${open ? us.map((sp) => { const slot = freeSlot(t, d, sp); return `<div class="row usrow" data-sdrag="${sp.id}" style="padding:5px 0;border-top:1px solid var(--line)"><span class="handle" title="拖到下面的時間">⠿</span><span class="sp">${icatIcon({ 美食: "美食", 咖啡: "美食", 購物: "購物" }[sp.cat] || "景點")} ${esc(sp.name)}${cpTag(sp.name)} <span class="mut">${esc(sp.prio || "")}${sp.hours ? "・" + esc(sp.hours) : ""}</span></span>${slot ? `<button class="sm pri" data-act="usadd" data-id="${sp.id}" data-tm="${slot}">＋ ${slot}</button>` : '<span class="mut">今天排不進</span>'}</div>`; }).join("") : ""}</div>`;
   }
   if (untimed.length) h += `<div class="card" style="padding:8px 10px"><div class="mut" style="margin-bottom:4px">未排時間（編輯時填時間就會排進下面）</div>${untimed.map((i) => `<div class="calu" data-edit="itin:${i.id}">${icatIcon(icatOf(i))} ${i._lbl ? `<b>${i._lbl}</b> ` : ""}${esc(i.title)}</div>`).join("")}</div>`;
   const nowM = d === today() ? new Date().getHours() * 60 + new Date().getMinutes() : null;
@@ -1428,7 +1431,7 @@ function calHtml(t) {
     const m = MODES.find((x) => x[0] === i.mode);
     h += `<div class="cale c-${icatOf(i)}${warn ? " warn" : ""}" data-edit="itin:${i.id}" ${v.label ? "" : `data-cdrag="${i.id}"`} style="top:${top}px;height:${ht}px;left:calc(${v.col * w}% + 2px);width:calc(${w}% - 4px)">${v.label ? "" : '<div class="calrs noprint" data-crs></div>'}
       <div class="calt">${v.label ? `${v.label} ${esc(v.range)}` : `${esc(i.time)}${i.end ? "–" + esc(i.end) : ""}`}${m && !v.label ? " " + m[0].split(" ")[0] : ""}</div>
-      <b>${icatIcon(icatOf(i))} ${esc(i.title)}</b>${ht > 44 && i.place && !isUrl(i.place) ? `<div class="mut">${esc(i.place)}</div>` : ""}${warn && ht > 60 ? `<div style="color:var(--warn)">${warn}</div>` : warn ? " ⚠️" : ""}</div>`;
+      <b>${icatIcon(icatOf(i))} ${esc(i.title)}</b>${cpTag(i.title + " " + (i.place || ""), true)}${ht > 44 && i.place && !isUrl(i.place) ? `<div class="mut">${esc(i.place)}</div>` : ""}${warn && ht > 60 ? `<div style="color:var(--warn)">${warn}</div>` : warn ? " ⚠️" : ""}</div>`;
   }
   if (nowM != null && nowM >= lo * 60 && nowM <= hi * 60) h += `<div class="calnow" style="top:${((nowM - lo * 60) / 60) * HPX}px"></div>`;
   h += `</div>`;
@@ -1561,7 +1564,7 @@ const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["books", 
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
 const dayName = (d) => d ? ["日", "一", "二", "三", "四", "五", "六"][new Date(d + "T00:00").getDay()] : "";
 const dt = (s) => s ? s.replace("T", " ") : "";
-const UI_KEYS = ["iv", "tool", "pk", "ex", "pm", "pg", "sv"];
+const UI_KEYS = ["iv", "tool", "pk", "ex", "pm", "pg", "sv", "tk"];
 // 新版行程預設用行事曆; 以前停在「清單」的也切過去一次
 if (S.tab === "spots") { S.tab = "itin"; S.ui = { ...(S.ui || {}), iv: "景點" }; }
 if (S.ui && !S.ui.cal1) { if (S.ui.iv === "清單") S.ui.iv = "行事曆"; S.ui.cal1 = 1; }
@@ -1605,6 +1608,8 @@ const V = {
     }
     h += `<h2>今天行程</h2>` + (todays.length ? todays.map(itinCard).join("") : `<div class="card mut">今天沒有安排</div>`);
     if (tkToday.length) h += `<h2>今天要用的票券</h2>` + tkToday.map(tkCard).join("");
+    const soon = liveCoupons(t).filter((c) => c.expire && daysLeft(c.expire) <= 3);
+    if (soon.length) h += `<h2>🎟 快到期的優惠券</h2>` + soon.map((c) => `<div class="card row" data-act="cpshow" data-id="${c.id}"><span class="sp"><b>${esc(c.title)}</b><div class="mut">${esc(c.store || "")}${c.deal ? "・" + esc(c.deal) : ""}</div></span><span style="color:var(--red);font-weight:700">${expTxt(c.expire)}</span></div>`).join("");
     if (next) h += `<h2>下一個預訂</h2>` + bookCard(next);
     return h;
   },
@@ -1643,7 +1648,7 @@ const V = {
     list.sort((a, b) => !!a.done - !!b.done || pr[a.prio] - pr[b.prio]);
     return `<div class="row" style="margin-bottom:8px"><button data-act="import">📥 匯入 Google 地圖收藏／連結</button></div>` + chips("sc", SPOT_CATS) + (cities.length > 1 ? chips("city", cities) : "") +
       (list.length ? list.map((s) => `<div class="card ${s.done ? "done" : ""}" data-edit="spots:${s.id}">
-        <div class="row"><h3 class="sp">${esc(s.name)}</h3><span class="tag">${esc(s.prio)}</span><span class="tag">${esc(s.cat)}</span></div>
+        <div class="row"><h3 class="sp">${esc(s.name)}${cpTag(s.name + " " + (s.addr || ""))}</h3><span class="tag">${esc(s.prio)}</span><span class="tag">${esc(s.cat)}</span></div>
         <div class="mut">${[s.city, s.hours, s.price].filter(Boolean).map(esc).join("・")}</div>
         ${s.addr ? `<div>${mapLink(s.addr)}</div>` : ""}${s.note ? `<div class="mut">${esc(s.note)}</div>` : ""}
         <div class="row" style="margin-top:6px"><button class="sm" data-act="spot2itin" data-id="${s.id}">加入行程</button><button class="sm" data-act="spotdone" data-id="${s.id}">${s.done ? "取消去過" : "✓ 去過"}</button></div></div>`).join("")
@@ -1656,6 +1661,12 @@ const V = {
       (list.length ? list.map(bookCard).join("") : `<div class="empty">還沒有預訂</div>`);
   },
   tickets(t) {
+    const sub = filt.tk || "票券";
+    const head = `<div class="chips">${["票券", "優惠券"].map((x) => `<button class="${x === sub ? "on" : ""}" data-f="tk" data-v="${x}">${x === "票券" ? "🎫" : "🎟"} ${x}${x === "優惠券" && liveCoupons(t).length ? ` <span class="badge">${liveCoupons(t).length}</span>` : ""}</button>`).join("")}</div>`;
+    if (sub === "優惠券") return head + couponsHtml(t);
+    return head + V.tickets0(t);
+  },
+  tickets0(t) {
     const list = t.tickets.filter((k) => !filt.tc || filt.tc === "全部" || k.cat === filt.tc).sort((a, b) => !!a.used - !!b.used || (a.date || "z").localeCompare(b.date || "z"));
     return chips("tc", TK_CATS) + (list.length ? list.map(tkCard).join("") : `<div class="empty">還沒有票券<br>可上傳 PDF / 截圖，離線也能開</div>`);
   },
@@ -1781,7 +1792,7 @@ function toolBind(t) {
     document.querySelectorAll("[data-tip]").forEach((b) => (b.onclick = () => { $("#tipP").value = b.dataset.tip; calc(); }));
   }
 }
-const fabKind = () => S.tab === "itin" && filt.iv === "日記" ? null : S.tab === "itin" && filt.iv === "景點" ? "spots" : S.tab === "fx" ? { 外語: "phr", 緊急: "emerg" }[filt.tool] : S.tab === "pack" ? { 必買: "shop", 行李: "pack" }[filt.pk || "必買"] : SCHEMA[S.tab] ? S.tab : null;
+const fabKind = () => S.tab === "tickets" && filt.tk === "優惠券" ? "coupons" : S.tab === "itin" && filt.iv === "日記" ? null : S.tab === "itin" && filt.iv === "景點" ? "spots" : S.tab === "fx" ? { 外語: "phr", 緊急: "emerg" }[filt.tool] : S.tab === "pack" ? { 必買: "shop", 行李: "pack" }[filt.pk || "必買"] : SCHEMA[S.tab] ? S.tab : null;
 
 function shopHtml(t) {
   if (!t.shop.length) return `<div class="empty">必買清單是空的，按 ＋ 新增<br>可以附商品照片，到店裡直接給店員看</div>`;
@@ -1790,7 +1801,7 @@ function shopHtml(t) {
   const byCat = {}; t.shop.forEach((x) => (byCat[x.cat] ||= []).push(x));
   const img = (x, cls) => x.fileId && !/pdf/.test(x.fileType || "") ? `<img class="${cls}" data-fid="${x.fileId}" data-act="shopimg" data-id="${x.id}" alt="${esc(x.name)}">` : `<div class="${cls} noimg" data-edit="shop:${x.id}">🛍</div>`;
   const price = (x) => x.price ? `${fmt(x.price, 2)} ${x.cur}${x.cur !== t.home ? `<span class="mut"> ≈${fmt(toHome(x.price * (+x.qty || 1), x.cur))}</span>` : ""}` : "";
-  const meta = (x) => [x.where && "📍 " + esc(x.where), x.who && "🎁 " + esc(x.who)].filter(Boolean).join("・");
+  const meta = (x) => [x.where && "📍 " + esc(x.where), x.who && "🎁 " + esc(x.who)].filter(Boolean).join("・") + (x.where ? cpTag(x.where) : "");
   return `<div class="card"><div class="row"><span class="sp">已買 ${done}/${t.shop.length}</span><span class="mut">還沒買的預估 ${fmt(est(left))} ${t.home}</span></div><div class="bar"><i style="width:${(done / t.shop.length) * 100}%"></i></div></div>
     <div class="chips">${["圖卡", "清單"].map((m) => `<button class="${m === (filt.sv || "圖卡") ? "on" : ""}" data-f="sv" data-v="${m}">${m === "圖卡" ? "🖼" : "📋"} ${m}</button>`).join("")}</div>` +
     Object.entries(byCat).map(([c, arr]) => `<h2>${esc(c)} <span class="mut" style="font-weight:400">${arr.filter((x) => x.ok).length}/${arr.length}</span></h2>` + (grid
@@ -1806,6 +1817,44 @@ function shopHtml(t) {
           ${x.ok ? "" : `<button class="sm pri" data-act="shopbuy" data-id="${x.id}" style="margin-top:6px">🛒 買了，記帳</button>`}</div></div>`).join(""))
     ).join("");
 }
+// ===== 優惠券 =====
+const daysLeft = (d) => Math.round((new Date(d + "T00:00") - new Date(today() + "T00:00")) / 864e5);
+const expTxt = (d) => { const n = daysLeft(d); return n < 0 ? "已過期" : n === 0 ? "今天到期" : `剩 ${n} 天`; };
+const liveCoupons = (t) => t.coupons.filter((c) => !c.used && !(c.expire && daysLeft(c.expire) < 0));
+// 依店名找可用的優惠券(店家欄位任一個名字有出現在名稱/地址裡)
+function couponsFor(text) {
+  const t = T(), s = (text || "").toLowerCase();
+  if (!s.trim()) return [];
+  return liveCoupons(t).filter((c) => (c.store || "").split(/[,，、/／;；]+/).map((x) => x.trim().toLowerCase()).filter((x) => x.length >= 2).some((x) => s.includes(x)));
+}
+const cpTag = (text, small) => { const cs = couponsFor(text); return cs.length ? ` <span class="tag cptag" data-act="cpshow" data-id="${cs[0].id}">🎟${small ? "" : " 有優惠券"}${cs.length > 1 ? " ×" + cs.length : ""}</span>` : ""; };
+function couponsHtml(t) {
+  if (!t.coupons.length) return `<div class="empty">還沒有優惠券<br>按 ＋ 新增，可以上傳優惠券截圖或 QR Code<br>行程、景點有適用的店會自動提醒</div>`;
+  const rank = (c) => (c.used ? 2 : c.expire && daysLeft(c.expire) < 0 ? 3 : 0);
+  const list = t.coupons.slice().sort((a, b) => rank(a) - rank(b) || (a.expire || "9").localeCompare(b.expire || "9"));
+  return `<div class="shopgrid">${list.map((c) => { const dead = c.used || (c.expire && daysLeft(c.expire) < 0), n = c.expire ? daysLeft(c.expire) : null;
+    return `<div class="stile ${dead ? "done" : ""}">
+      ${c.fileId && !/pdf/.test(c.fileType || "") ? `<img class="simg" data-fid="${c.fileId}" data-act="cpshow" data-id="${c.id}" alt="${esc(c.title)}">` : `<div class="simg noimg" data-act="cpshow" data-id="${c.id}">🎟</div>`}
+      <label class="scheck" title="已使用"><input type="checkbox" style="width:auto" data-act="cptog" data-id="${c.id}" ${c.used ? "checked" : ""}></label>
+      <div class="sbody" data-edit="coupons:${c.id}"><b>${esc(c.title)}</b>
+        ${c.deal ? `<div style="color:var(--acc);font-weight:600">${esc(c.deal)}</div>` : ""}
+        <div class="mut" style="font-size:calc(12px*var(--fz,1))">${[c.store && "🏬 " + esc(c.store), c.minSpend && esc(c.minSpend)].filter(Boolean).join("・")}</div>
+        ${c.expire ? `<div style="font-size:calc(12px*var(--fz,1));${n != null && n <= 3 ? "color:var(--red);font-weight:700" : ""}">⏰ ${c.expire.slice(5)}・${c.used ? "已使用" : expTxt(c.expire)}</div>` : c.used ? '<div class="mut">已使用</div>' : ""}</div></div>`; }).join("")}</div>`;
+}
+async function showCoupon(t, c) {
+  if (!c) return;
+  let b = c.fileId ? await fget(c.fileId) : null;
+  if (!b && c.fileId && window.TravelSync && TravelSync.user) { b = await TravelSync.getFile(t, c.fileId); if (b) await fput(c.fileId, b); }
+  const dlg = $("#dlg"); dlg.onclose = null;
+  $("#dlgForm").innerHTML = `${b ? (/pdf/.test(c.fileType || "") ? `<button type="button" class="pri" data-act="fopen" data-k="coupons" data-id="${c.id}" style="width:100%">開啟 PDF</button>` : `<img src="${URL.createObjectURL(b)}" style="width:100%;max-height:62vh;object-fit:contain;border-radius:8px;background:#fff">`) : ""}
+    <div class="huge" style="font-size:calc(24px*var(--fz,1));padding:10px 0 0">${esc(c.title)}</div>
+    ${c.deal ? `<div style="text-align:center;color:var(--acc);font-weight:700;font-size:calc(18px*var(--fz,1))">${esc(c.deal)}</div>` : ""}
+    ${c.code ? `<div style="text-align:center;font-size:calc(30px*var(--fz,1));font-weight:800;letter-spacing:2px;margin:8px 0;user-select:all;font-variant-numeric:tabular-nums">${esc(c.code)}</div>` : ""}
+    <div class="mut" style="text-align:center">${[c.store, c.minSpend, c.expire && "期限 " + c.expire + "（" + expTxt(c.expire) + "）"].filter(Boolean).map(esc).join("・")}</div>
+    ${c.note ? `<div class="mut" style="text-align:center;white-space:pre-wrap">${esc(c.note)}</div>` : ""}
+    <div class="row" style="margin-top:12px"><button value="cancel" formnovalidate data-act="cptog" data-id="${c.id}">${c.used ? "標為未使用" : "✓ 用掉了"}</button><span class="sp"></span><button value="cancel" class="pri">關閉</button></div>`;
+  dlg.showModal();
+}
 // 商品照片放大(給店員看)
 async function showShopImg(t, x) {
   let b = await fget(x.fileId);
@@ -1819,7 +1868,7 @@ async function showShopImg(t, x) {
 }
 function itinCard(i, drag) {
   return `<div class="card row c-${icatOf(i)}" data-edit="itin:${i.id}" data-iid="${i.id}" style="align-items:flex-start;border-left:4px solid var(--cc)">${drag ? '<div class="handle noprint" data-drag title="拖拉排序">⠿</div>' : ""}<div class="time">${esc(i.time || "--:--")}${i.end ? `<div class="mut" style="font-weight:400">${esc(i.end)}</div>` : ""}</div>
-    <div class="sp"><b>${icatIcon(icatOf(i))} ${esc(i.title)}</b> <span class="tag ctag c-${icatOf(i)}">${icatOf(i)}</span>${isMulti(i) ? ` <span class="mut">～${i.endDate.slice(5)}（${icatOf(i) === "住宿" ? nights(i) + " 晚" : nights(i) + 1 + " 天"}）</span>` : ""}${(() => { const w = hoursWarn(i, T()); return w ? ` <span class="tag" style="background:var(--warn);color:#fff">${w}</span>` : ""; })()}${i.place ? `<div>${mapLink(i.place)}</div>` : ""}${i.note ? `<div class="mut" style="white-space:pre-wrap">${esc(i.note)}</div>` : ""}</div></div>`;
+    <div class="sp"><b>${icatIcon(icatOf(i))} ${esc(i.title)}</b> <span class="tag ctag c-${icatOf(i)}">${icatOf(i)}</span>${cpTag(i.title + " " + (i.place || ""))}${isMulti(i) ? ` <span class="mut">～${i.endDate.slice(5)}（${icatOf(i) === "住宿" ? nights(i) + " 晚" : nights(i) + 1 + " 天"}）</span>` : ""}${(() => { const w = hoursWarn(i, T()); return w ? ` <span class="tag" style="background:var(--warn);color:#fff">${w}</span>` : ""; })()}${i.place ? `<div>${mapLink(i.place)}</div>` : ""}${i.note ? `<div class="mut" style="white-space:pre-wrap">${esc(i.note)}</div>` : ""}</div></div>`;
 }
 function bookCard(b) {
   const icon = { 機票: "✈️", 住宿: "🏨", 交通: "🚄", 租車: "🚗", 保險: "🛡", 其他: "📌" }[b.type] || "📌";
@@ -1853,7 +1902,7 @@ function render() {
   $("#fab").style.display = fabKind() ? "" : "none";
   if (S.tab === "fx") toolBind(t);
   if (S.tab === "itin" && filt.iv === "地圖") initMap(t);
-  if ((S.tab === "exp" && filt.ex === "收據整理") || (S.tab === "itin" && filt.iv === "日記") || (S.tab === "pack" && (filt.pk || "必買") === "必買")) fillThumbs();
+  if ((S.tab === "tickets" && filt.tk === "優惠券") || (S.tab === "exp" && filt.ex === "收據整理") || (S.tab === "itin" && filt.iv === "日記") || (S.tab === "pack" && (filt.pk || "必買") === "必買")) fillThumbs();
   if (S.tab === "itin" && (filt.iv || "行事曆") === "行事曆") calScroll();
   if ($("#ocrIn")) $("#ocrIn").onchange = (e) => { const f = e.target.files[0]; if (f) doOcr(f).catch((err) => alert("失敗：" + err.message)); };
   loadWx(t);
@@ -1927,6 +1976,8 @@ document.addEventListener("click", async (e) => {
     else if (act === "rprint") return window.print();
     else if (act === "addwallet") return openForm("wallet");
     else if (act === "shopimg") return showShopImg(t, t.shop.find((y) => y.id === id));
+    else if (act === "cpshow") return showCoupon(t, t.coupons.find((y) => y.id === id));
+    else if (act === "cptog") { const c = t.coupons.find((y) => y.id === id); c.used = !c.used; }
     else if (act === "shoptog") { const x = t.shop.find((y) => y.id === id); x.ok = el.checked; }
     else if (act === "shopbuy") {
       const x = t.shop.find((y) => y.id === id);
@@ -2027,6 +2078,7 @@ const SEARCH = [
   ["exp", "💰 花費", (x) => [x.note, x.cat, x.store], (x) => `${x.date || ""} ${fmt(x.amt, 2)} ${x.cur}`],
   ["shop", "🛍 必買", (x) => [x.name, x.where, x.who, x.note], (x) => x.where || x.cat],
   ["diary", "📔 日記", (x) => [x.text], (x) => x.date],
+  ["coupons", "🎟 優惠券", (x) => [x.title, x.store, x.deal, x.code, x.note], (x) => x.deal || x.store],
   ["emerg", "🆘 緊急", (x) => [x.name, x.tel, x.note], (x) => x.tel],
 ];
 function openSearch() {
@@ -2045,9 +2097,9 @@ function openSearch() {
     const h = e.target.closest("[data-hit]"); if (!h) return;
     const [kind, id] = h.dataset.hit.split(":"), x = t[kind].find((y) => y.id === id);
     dlg.close("cancel");
-    const tab = { itin: "itin", spots: "itin", books: "books", tickets: "tickets", exp: "exp", shop: "pack", diary: "itin", emerg: "fx" }[kind];
+    const tab = { itin: "itin", spots: "itin", books: "books", tickets: "tickets", coupons: "tickets", exp: "exp", shop: "pack", diary: "itin", emerg: "fx" }[kind];
     if (kind === "diary") { filt.iv = "日記"; goTab("itin"); return setTimeout(() => openDiary(t, x.date), 50); }
-    if (kind === "shop") filt.pk = "必買"; if (kind === "emerg") filt.tool = "緊急"; if (kind === "exp") filt.ex = "記帳"; if (kind === "itin") filt.iv = "清單"; if (kind === "spots") filt.iv = "景點";
+    if (kind === "coupons") filt.tk = "優惠券"; if (kind === "tickets") filt.tk = "票券"; if (kind === "shop") filt.pk = "必買"; if (kind === "emerg") filt.tool = "緊急"; if (kind === "exp") filt.ex = "記帳"; if (kind === "itin") filt.iv = "清單"; if (kind === "spots") filt.iv = "景點";
     goTab(tab); setTimeout(() => openForm(kind, x), 50);
   };
   dlg.showModal(); setTimeout(() => q.focus(), 50);
@@ -2112,7 +2164,7 @@ function openSettings() {
 
     if (act === "deltrip") {
       if (!confirm(`刪除「${t.name}」？無法復原`)) return;
-      [...t.tickets, ...t.exp, ...t.shop, ...t.diary.flatMap((d) => d.photos)].forEach((k) => { if (k.fileId) { fdel(k.fileId); window.TravelSync && TravelSync.delFile(t, k.fileId); } });
+      [...t.tickets, ...t.exp, ...t.shop, ...t.coupons, ...t.diary.flatMap((d) => d.photos)].forEach((k) => { if (k.fileId) { fdel(k.fileId); window.TravelSync && TravelSync.delFile(t, k.fileId); } });
       S.trips = S.trips.filter((x) => x.id !== t.id);
       S.deleted[t.id] = Date.now(); delete snap[t.id];
       window.TravelSync && TravelSync.remove(t.id, S.deleted[t.id]);
@@ -2130,7 +2182,7 @@ function openSettings() {
       const me = TravelSync.user.toLowerCase();
       const list = fd.get("share").split(/[,，;\s]+/).map((x) => x.trim().toLowerCase()).filter((x) => /.+@.+\..+/.test(x));
       if (list.length || t.shared) {
-        if (!t.shared) [...t.tickets, ...t.exp, ...t.shop, ...t.diary.flatMap((d) => d.photos)].forEach((k) => k.fileId && delete S.upl[k.fileId]); // 檔案改傳到共享區
+        if (!t.shared) [...t.tickets, ...t.exp, ...t.shop, ...t.coupons, ...t.diary.flatMap((d) => d.photos)].forEach((k) => k.fileId && delete S.upl[k.fileId]); // 檔案改傳到共享區
         t.shared = true; t.emails = [...new Set([me, ...list])];
         setTimeout(() => TravelApp.uploadPending(), 1500);
       }
@@ -2200,7 +2252,7 @@ window.TravelApp = {
   isBlank: (t) => isBlank(t),
   async uploadPending() {
     if (!window.TravelSync || !TravelSync.user) return;
-    for (const t of S.trips) for (const it of [...t.tickets, ...t.exp, ...t.shop, ...t.diary.flatMap((d) => d.photos)]) {
+    for (const t of S.trips) for (const it of [...t.tickets, ...t.exp, ...t.shop, ...t.coupons, ...t.diary.flatMap((d) => d.photos)]) {
       if (!it.fileId || S.upl[it.fileId]) continue;
       const b = await fget(it.fileId); if (!b) continue;
       try { const r = await TravelSync.putFile(t, it.fileId, b); if (r) { S.upl[it.fileId] = r === true ? 1 : "big"; saveLocal(); } } catch (e) { }
