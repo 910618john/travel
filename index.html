@@ -98,6 +98,11 @@ body.off #offline{display:block}
 .calnow{position:absolute;left:-4px;right:0;border-top:2px solid var(--red);pointer-events:none}
 .calnow::before{content:"";position:absolute;left:-4px;top:-5px;width:8px;height:8px;border-radius:50%;background:var(--red)}
 .calu{padding:3px 0}
+.calrs{position:absolute;left:0;right:0;bottom:0;height:9px;cursor:ns-resize}
+.calrs::after{content:"";position:absolute;left:50%;bottom:3px;width:24px;height:3px;margin-left:-12px;border-radius:2px;background:var(--cc,var(--acc));opacity:.7}
+.cale{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.caldrag{z-index:5;box-shadow:0 6px 18px #0006;opacity:.92}
+.calban{border-left:4px solid var(--cc);background:color-mix(in srgb,var(--cc) 18%,var(--card));border-radius:8px;padding:6px 10px;margin-bottom:6px}
 .shopgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:10px}
 .stile{position:relative;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
 .simg{width:100%;aspect-ratio:1;object-fit:cover;background:var(--line);display:block}
@@ -255,7 +260,7 @@ const icatOf = (i) => i.cat || (/住宿|飯店|酒店|旅館|民宿|入住|退�
 const icatIcon = (c) => (ICATS.find((x) => x[0] === c) || ICATS[0])[1];
 const MODES = [["🚶 步行", "walking"], ["🚃 電車/地鐵", "transit"], ["🚌 公車", "transit"], ["🚕 計程車", "driving"], ["🚗 開車", "driving"], ["✈️ 飛機", ""], ["⛴ 船", ""]];
 const SCHEMA = {
-  itin: [["date", "日期", "date"], ["time", "開始時間", "time"], ["end", "結束時間(選填，沒填算 1 小時)", "time"], ["title", "活動", "text", 1], ["cat", "類型", "select", 0, ICATS.map((x) => x[0])], ["place", "地點(可貼Google地圖連結)", "text"], ["hours", "營業時間(選填，例：10:00-18:00 週一休)", "text"], ["mode", "從上一個行程怎麼過去", "select", 0, ["", ...MODES.map((m) => m[0])]], ["note", "備註", "textarea"]],
+  itin: [["date", "日期(住宿＝入住日)", "date"], ["endDate", "結束日期(住宿＝退房日，跨天才填)", "date"], ["time", "開始時間(住宿＝入住時間)", "time"], ["end", "結束時間(住宿＝退房時間；沒填算 1 小時)", "time"], ["title", "活動", "text", 1], ["cat", "類型", "select", 0, ICATS.map((x) => x[0])], ["place", "地點(可貼Google地圖連結)", "text"], ["hours", "營業時間(選填，例：10:00-18:00 週一休)", "text"], ["mode", "從上一個行程怎麼過去", "select", 0, ["", ...MODES.map((m) => m[0])]], ["note", "備註", "textarea"]],
   shop: [["name", "要買什麼", "text", 1], ["cat", "分類", "select", 0, SHOP_CATS], ["where", "在哪買(店名/地點)", "text"], ["price", "預估價格", "number"], ["cur", "幣別", "cur"], ["qty", "數量", "number"], ["who", "送誰／自用", "text"], ["file", "商品照片(給店員看)", "file"], ["note", "備註", "textarea"]],
   wallet: [["date", "日期", "date"], ["amt", "換到的外幣金額(負數=調整減少)", "number", 1], ["cur", "幣別", "cur"], ["cost", "花了多少本國幣(選填，用來算實際匯率)", "number"], ["note", "備註(在哪換)", "text"]],
   spots: [["name", "名稱", "text", 1], ["cat", "分類", "select", 0, SPOT_CATS], ["city", "城市/區域", "text"], ["addr", "地址或地圖連結", "text"], ["hours", "營業時間(例：10:00-18:00 週一休，排進行程會自動檢查)", "text"], ["price", "門票/預算", "text"], ["prio", "優先", "select", 0, ["必去", "想去", "有空再去"]], ["note", "備註", "textarea"]],
@@ -282,6 +287,7 @@ const DEFAULTS = {
 function openForm(kind, item, after, pre) {
   const t = T(), isNew = !item, o = item ? { ...item } : { ...DEFAULTS[kind](), ...pre };
   const hint = o._hint; delete o._hint;
+  if (kind === "itin" && !o.cat) o.cat = icatOf(o);
   const f = $("#dlgForm");
   let h = `<h3>${isNew ? "新增" : "編輯"}</h3>${hint ? `<div class="mut">${esc(hint)}</div>` : ""}`;
   for (const [k, lab, type, req, opts] of SCHEMA[kind]) {
@@ -405,7 +411,7 @@ async function geocode(q, t) {
 }
 const needGeo = (x) => x.lat == null && !x.geoFail;
 async function geoAll(t) {
-  const list = [...t.itin.map((i) => [i, i.place, i.title]), ...t.spots.map((s) => [s, s.addr, s.name + (s.city ? " " + s.city : "")]), ...hotels(t).map((h) => [h, h.from, h.title])].filter(([x]) => needGeo(x));
+  const list = [...t.itin.map((i) => [i, i.place, i.title]), ...t.spots.map((s) => [s, s.addr, s.name + (s.city ? " " + s.city : "")]), ...bookHotels(t).map((h) => [h, h.from, h.title])].filter(([x]) => needGeo(x));
   if (!list.length) return alert("全部都定位過了");
   const btn = $("#geoBtn"); let n = 0, ok = 0;
   for (const [x, place, name] of list) {
@@ -1122,7 +1128,8 @@ function settleText(t) {
 }
 
 // ===== 住宿 =====
-const hotels = (t) => t.books.filter((b) => b.type === "住宿" && b.start);
+const bookHotels = (t) => t.books.filter((b) => b.type === "住宿" && b.start);
+const hotels = (t) => [...bookHotels(t), ...t.itin.filter((i) => isMulti(i) && icatOf(i) === "住宿").map((i) => ({ _iid: i.id, title: i.title, from: i.place, start: `${i.date}T${i.time || "15:00"}`, end: `${i.endDate}T${i.end || "11:00"}`, lat: i.lat, lon: i.lon }))];
 const sleepHotel = (t, d) => hotels(t).find((b) => b.start.slice(0, 10) <= d && d < (b.end || b.start).slice(0, 10)); // 當晚住哪
 const wakeHotel = (t, d) => hotels(t).find((b) => b.start.slice(0, 10) < d && d <= (b.end || b.start).slice(0, 10)); // 早上從哪出發
 const hotelPt = (h) => ({ lat: h.lat, lon: h.lon, place: h.from, title: h.title });
@@ -1270,7 +1277,10 @@ function packHtml(t) {
 // ===== 行程: 行事曆(時間軸) =====
 const HPX = 64; // 每小時高度(px)
 const toMin = (s) => s ? +s.slice(0, 2) * 60 + +s.slice(3, 5) : null;
-function calDays(t) { return [...new Set([...tripDays(t), ...t.itin.map((i) => i.date).filter(Boolean)])].sort(); }
+const spanDates = (a, b) => { const out = []; for (let d = new Date(a + "T00:00"); d <= new Date(b + "T00:00") && out.length < 60; d.setDate(d.getDate() + 1)) out.push(d.toLocaleDateString("sv")); return out; };
+const isMulti = (i) => i.date && i.endDate && i.endDate > i.date;
+const nights = (i) => isMulti(i) ? spanDates(i.date, i.endDate).length - 1 : 0;
+function calDays(t) { return [...new Set([...tripDays(t), ...t.itin.flatMap((i) => isMulti(i) ? spanDates(i.date, i.endDate) : [i.date]).filter(Boolean)])].sort(); }
 // 同一時間重疊的行程並排: 先分群, 群內分欄
 function calLayout(evs) {
   evs.sort((a, b) => a.s - b.s || b.e - a.e);
@@ -1290,12 +1300,27 @@ function calHtml(t) {
   if (!filt.cd || !days.includes(filt.cd)) filt.cd = days.includes(today()) ? today() : days[0];
   const d = filt.cd, idx = days.indexOf(d), startD = t.start ? new Date(t.start + "T00:00") : null;
   const n = startD ? Math.round((new Date(d + "T00:00") - startD) / 864e5) + 1 : null;
-  const items = t.itin.filter((i) => i.date === d);
+  const items = t.itin.filter((i) => i.date === d || (isMulti(i) && i.date < d && d <= i.endDate));
   const present = ICATS.filter(([c]) => t.itin.some((i) => icatOf(i) === c));
   if (filt.ic && !present.some(([c]) => c === filt.ic)) filt.ic = "";
   const shown = items.filter((i) => !filt.ic || icatOf(i) === filt.ic);
-  const timed = shown.filter((i) => i.time), untimed = shown.filter((i) => !i.time).sort(byOrd);
-  const evs = timed.map((i) => { const s = toMin(i.time); let e = toMin(i.end); if (e == null || e <= s) e = e != null && e < s ? e + 1440 : s + 60; return { i, s, e: Math.min(e, 1440 + 360) }; });
+  // 跨天(例如住宿): 第一天顯示「入住」, 最後一天顯示「退房」, 每晚在上方標「第幾晚」
+  const banners = shown.filter((i) => isMulti(i) && d < i.endDate);
+  const evs = [], untimed = [];
+  for (const i of shown) {
+    const lodge = icatOf(i) === "住宿";
+    if (!isMulti(i)) {
+      if (!i.time) { untimed.push(i); continue; }
+      const s = toMin(i.time); let e = toMin(i.end); if (e == null || e <= s) e = e != null && e < s ? e + 1440 : s + 60;
+      evs.push({ i, s, e: Math.min(e, 1440 + 360) });
+    } else if (d === i.date) {
+      if (i.time) { const s = toMin(i.time); evs.push({ i, s, e: s + 60, label: lodge ? "入住" : "開始", range: i.time }); } else untimed.push({ ...i, _lbl: lodge ? "入住" : "開始" });
+    } else if (d === i.endDate) {
+      const e = toMin(i.end || (lodge ? "11:00" : ""));
+      if (e != null) evs.push({ i, s: Math.max(0, e - 60), e: Math.max(e, 60), label: lodge ? "退房" : "結束", range: hm(e) }); else untimed.push({ ...i, _lbl: "結束" });
+    }
+  }
+  untimed.sort(byOrd);
   const lo = Math.min(7, ...evs.map((v) => Math.floor(v.s / 60))), hi = Math.max(22, ...evs.map((v) => Math.ceil(v.e / 60)));
   const wh = wakeHotel(t, d), sh = sleepHotel(t, d);
   let h = `<div class="row noprint" style="margin-bottom:6px;flex-wrap:nowrap">
@@ -1304,24 +1329,72 @@ function calHtml(t) {
       <button class="sm" data-act="calnext" ${idx < days.length - 1 ? "" : "disabled"}>›</button></div>
     <div class="row" style="margin:4px 0 8px"><h3 class="sp" style="margin:0">${n > 0 ? `Day ${n}・` : ""}${d} (${dayName(d)})</h3><span class="wx">${wxTxt(wxOf(t, d))}</span></div>
     ${present.length > 1 ? `<div class="chips noprint"><button class="${!filt.ic ? "on" : ""}" data-f="ic" data-v="">全部</button>${present.map(([c, ic]) => `<button class="${filt.ic === c ? "on" : ""}" data-f="ic" data-v="${c}"><span class="cdot c-${c}"></span>${ic} ${c}</button>`).join("")}</div>` : ""}`;
-  if (wh) h += `<div class="mut" style="margin-bottom:6px">🏨 從 <b>${esc(wh.title)}</b> 出發</div>`;
-  if (untimed.length) h += `<div class="card" style="padding:8px 10px"><div class="mut" style="margin-bottom:4px">未排時間（編輯時填時間就會排進下面）</div>${untimed.map((i) => `<div class="calu" data-edit="itin:${i.id}">${icatIcon(icatOf(i))} ${esc(i.title)}</div>`).join("")}</div>`;
+  for (const i of banners) { const k = spanDates(i.date, d).length, N = nights(i);
+    h += `<div class="calban c-${icatOf(i)}" data-edit="itin:${i.id}">${icatIcon(icatOf(i))} <b>${esc(i.title)}</b><span class="mut">・${icatOf(i) === "住宿" ? `第 ${k} 晚／共 ${N} 晚` : `第 ${k} 天／共 ${N + 1} 天`}・${i.date.slice(5)}～${i.endDate.slice(5)}</span></div>`; }
+  if (wh && !wh._iid) h += `<div class="mut" style="margin-bottom:6px">🏨 從 <b>${esc(wh.title)}</b> 出發</div>`;
+  if (untimed.length) h += `<div class="card" style="padding:8px 10px"><div class="mut" style="margin-bottom:4px">未排時間（編輯時填時間就會排進下面）</div>${untimed.map((i) => `<div class="calu" data-edit="itin:${i.id}">${icatIcon(icatOf(i))} ${i._lbl ? `<b>${i._lbl}</b> ` : ""}${esc(i.title)}</div>`).join("")}</div>`;
   const nowM = d === today() ? new Date().getHours() * 60 + new Date().getMinutes() : null;
   h += `<div class="cal" style="height:${(hi - lo) * HPX}px" data-act="calnew" data-lo="${lo}">`;
   for (let k = lo; k <= hi; k++) h += `<div class="calh" style="top:${(k - lo) * HPX}px"><span>${String(k % 24).padStart(2, "0")}:00</span></div>`;
   for (const v of calLayout(evs)) {
     const top = ((v.s - lo * 60) / 60) * HPX, ht = Math.max(26, ((v.e - v.s) / 60) * HPX - 3), w = 100 / v.cols, i = v.i, warn = hoursWarn(i, t);
     const m = MODES.find((x) => x[0] === i.mode);
-    h += `<div class="cale c-${icatOf(i)}${warn ? " warn" : ""}" data-edit="itin:${i.id}" style="top:${top}px;height:${ht}px;left:calc(${v.col * w}% + 2px);width:calc(${w}% - 4px)">
-      <div class="calt">${esc(i.time)}${i.end ? "–" + esc(i.end) : ""}${m ? " " + m[0].split(" ")[0] : ""}</div>
+    h += `<div class="cale c-${icatOf(i)}${warn ? " warn" : ""}" data-edit="itin:${i.id}" ${v.label ? "" : `data-cdrag="${i.id}"`} style="top:${top}px;height:${ht}px;left:calc(${v.col * w}% + 2px);width:calc(${w}% - 4px)">${v.label ? "" : '<div class="calrs noprint" data-crs></div>'}
+      <div class="calt">${v.label ? `${v.label} ${esc(v.range)}` : `${esc(i.time)}${i.end ? "–" + esc(i.end) : ""}`}${m && !v.label ? " " + m[0].split(" ")[0] : ""}</div>
       <b>${icatIcon(icatOf(i))} ${esc(i.title)}</b>${ht > 44 && i.place && !isUrl(i.place) ? `<div class="mut">${esc(i.place)}</div>` : ""}${warn && ht > 60 ? `<div style="color:var(--warn)">${warn}</div>` : warn ? " ⚠️" : ""}</div>`;
   }
   if (nowM != null && nowM >= lo * 60 && nowM <= hi * 60) h += `<div class="calnow" style="top:${((nowM - lo * 60) / 60) * HPX}px"></div>`;
   h += `</div>`;
-  if (sh) h += `<div class="mut" style="margin-top:6px">🏨 晚上住 <b>${esc(sh.title)}</b></div>`;
-  h += `<div class="mut noprint" style="margin-top:6px">點空白時段可直接新增；點行程可編輯</div>`;
+  if (sh && !sh._iid) h += `<div class="mut" style="margin-top:6px">🏨 晚上住 <b>${esc(sh.title)}</b></div>`;
+  h += `<div class="mut noprint" style="margin-top:6px">點空白時段新增・點行程編輯・拖曳改時間（手機長按再拖）・拖底部改結束時間</div>`;
   return h;
 }
+// 行事曆拖移: 滑鼠直接拖; 手指長按 0.35 秒再拖(不影響一般捲動). 拖本體=改時間, 拖底部=改結束時間, 15 分鐘一格
+const calDrag = { on: false, until: 0 };
+document.addEventListener("pointerdown", (e) => {
+  const el = e.target.closest && e.target.closest("[data-cdrag]"); if (!el || e.button > 0) return;
+  const cal = el.closest(".cal"), lo = +cal.dataset.lo;
+  const st = { el, id: el.dataset.cdrag, resize: !!e.target.closest("[data-crs]"), y0: e.clientY, top0: parseFloat(el.style.top), h0: parseFloat(el.style.height) + 3, lo, maxY: parseFloat(cal.style.height), active: false, pid: e.pointerId };
+  const SNAP = HPX / 4;
+  const activate = () => { st.active = calDrag.on = true; el.classList.add("caldrag"); navigator.vibrate && navigator.vibrate(15); };
+  if (e.pointerType === "mouse") st.armed = true; else st.timer = setTimeout(() => { st.armed = true; activate(); }, 350);
+  const move = (ev) => {
+    if (ev.pointerId !== st.pid) return;
+    const dy = ev.clientY - st.y0;
+    if (!st.active) {
+      if (st.armed && Math.abs(dy) > 4) activate();
+      else if (!st.armed && Math.abs(dy) > 8) return end(); // 手指先移動 = 捲動頁面, 不拖
+      if (!st.active) return;
+    }
+    if (ev.clientY < 90) scrollBy(0, -10); else if (ev.clientY > innerHeight - 100) scrollBy(0, 10);
+    const ddy = ev.clientY - st.y0;
+    if (st.resize) { el.style.height = Math.max(SNAP, Math.round((st.h0 + ddy) / SNAP) * SNAP) - 3 + "px"; }
+    else { el.style.top = Math.min(st.maxY - SNAP, Math.max(0, Math.round((st.top0 + ddy) / SNAP) * SNAP)) + "px"; }
+    const sMin = st.lo * 60 + Math.round((parseFloat(el.style.top) / HPX) * 60), eMin = sMin + Math.round(((parseFloat(el.style.height) + 3) / HPX) * 60);
+    const lbl = el.querySelector(".calt"); if (lbl) lbl.textContent = `${hm(sMin)}–${hm(eMin)}`;
+    st.s = sMin; st.e = eMin;
+  };
+  const end = () => {
+    clearTimeout(st.timer);
+    removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", end);
+    el.classList.remove("caldrag"); calDrag.on = false;
+  };
+  const up = () => {
+    const was = st.active && st.s != null; end();
+    if (!was) return;
+    calDrag.until = Date.now() + 120; // 只吃掉放開滑鼠/手指那一下產生的點擊
+    const t = T(), it = t.itin.find((x) => x.id === st.id); if (!it) return;
+    const hadEnd = !!it.end;
+    it.time = hm(st.s);
+    if (st.resize || hadEnd || st.e - st.s !== 60) it.end = hm(st.e);
+    placeByTime(t, it); save(); render();
+    toast(`已改成 ${it.time}${it.end ? "–" + it.end : ""}`);
+  };
+  addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", end);
+});
+// 拖移中不要讓頁面跟著捲
+document.addEventListener("touchmove", (e) => { if (calDrag.on) e.preventDefault(); }, { passive: false });
+document.addEventListener("contextmenu", (e) => { if (e.target.closest && e.target.closest("[data-cdrag]")) e.preventDefault(); });
 // 第一次打開某一天: 捲到現在時間或第一個行程
 function calScroll() {
   const cal = $(".cal"); if (!cal || calScroll.done === filt.cd) return;
@@ -1390,8 +1463,8 @@ const V = {
     if (mode === "地圖") {
       const dates = [...new Set(t.itin.map((i) => i.date).filter(Boolean))].sort();
       if (!filt.md || (filt.md !== "全部景點" && !dates.includes(filt.md))) filt.md = dates.includes(today()) ? today() : dates[0] || "全部景點";
-      const miss = [...t.itin, ...t.spots, ...hotels(t)].filter(needGeo).length;
-      const fail = [...t.itin, ...t.spots, ...hotels(t)].filter((x) => x.geoFail).length;
+      const miss = [...t.itin, ...t.spots, ...bookHotels(t)].filter(needGeo).length;
+      const fail = [...t.itin, ...t.spots, ...bookHotels(t)].filter((x) => x.geoFail).length;
       return h + `<div class="chips">${[...dates, "全部景點"].map((d) => `<button class="${d === filt.md ? "on" : ""}" data-f="md" data-v="${d}">${d === "全部景點" ? "📍 全部景點" : d.slice(5) + "(" + dayName(d) + ")"}</button>`).join("")}</div>
         <div id="map"></div>
         <div class="row" style="margin-top:6px"><button class="sm" data-act="premap" id="preBtn">🗺 出發前預存地圖</button><span class="mut sp">有網路時自動逐日看一遍，看過的區域離線也能看</span></div>
@@ -1591,7 +1664,7 @@ async function showShopImg(t, x) {
 }
 function itinCard(i, drag) {
   return `<div class="card row c-${icatOf(i)}" data-edit="itin:${i.id}" data-iid="${i.id}" style="align-items:flex-start;border-left:4px solid var(--cc)">${drag ? '<div class="handle noprint" data-drag title="拖拉排序">⠿</div>' : ""}<div class="time">${esc(i.time || "--:--")}${i.end ? `<div class="mut" style="font-weight:400">${esc(i.end)}</div>` : ""}</div>
-    <div class="sp"><b>${icatIcon(icatOf(i))} ${esc(i.title)}</b> <span class="tag ctag c-${icatOf(i)}">${icatOf(i)}</span>${(() => { const w = hoursWarn(i, T()); return w ? ` <span class="tag" style="background:var(--warn);color:#fff">${w}</span>` : ""; })()}${i.place ? `<div>${mapLink(i.place)}</div>` : ""}${i.note ? `<div class="mut" style="white-space:pre-wrap">${esc(i.note)}</div>` : ""}</div></div>`;
+    <div class="sp"><b>${icatIcon(icatOf(i))} ${esc(i.title)}</b> <span class="tag ctag c-${icatOf(i)}">${icatOf(i)}</span>${isMulti(i) ? ` <span class="mut">～${i.endDate.slice(5)}（${icatOf(i) === "住宿" ? nights(i) + " 晚" : nights(i) + 1 + " 天"}）</span>` : ""}${(() => { const w = hoursWarn(i, T()); return w ? ` <span class="tag" style="background:var(--warn);color:#fff">${w}</span>` : ""; })()}${i.place ? `<div>${mapLink(i.place)}</div>` : ""}${i.note ? `<div class="mut" style="white-space:pre-wrap">${esc(i.note)}</div>` : ""}</div></div>`;
 }
 function bookCard(b) {
   const icon = { 機票: "✈️", 住宿: "🏨", 交通: "🚄", 租車: "🚗", 保險: "🛡", 其他: "📌" }[b.type] || "📌";
@@ -1647,6 +1720,7 @@ document.addEventListener("click", async (e) => {
   if (sy) { e.preventDefault(); return speak(sy.dataset.say, sy.dataset.lang || "en-US"); }
   const bg = e.target.closest("[data-big]");
   if (bg) return showBig(bg.dataset.big, bg.dataset.zh, bg.dataset.lang);
+  if (Date.now() < calDrag.until) return;
   const el = e.target.closest("[data-tab],[data-act],[data-f],[data-edit]");
   if (!el || e.target.closest("a") || e.target.closest("[data-drag]")) return;
   const t = T();
