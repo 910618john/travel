@@ -16,6 +16,7 @@
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--fg:#1f2328;--mut:#6b7280;--line:#e5e7eb;--acc:#0f766e;--acc2:#ccfbf1;--red:#dc2626;--warn:#d97706}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1115;--card:#181b21;--fg:#e6e8eb;--mut:#9aa1ab;--line:#2a2f37;--acc:#2dd4bf;--acc2:#134e4a;--red:#f87171;--warn:#fbbf24}}
+:root{color-scheme:light dark}:root[data-theme="light"]{color-scheme:light}:root[data-theme="dark"]{color-scheme:dark}
 :root[data-theme="dark"]{--bg:#0f1115;--card:#181b21;--fg:#e6e8eb;--mut:#9aa1ab;--line:#2a2f37;--acc:#2dd4bf;--acc2:#134e4a;--red:#f87171;--warn:#fbbf24}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:calc(15px*var(--fz,1))/1.5 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif;padding-bottom:calc(70px + env(safe-area-inset-bottom))}
@@ -98,6 +99,10 @@ body.off #offline{display:block}
 .calnow{position:absolute;left:-4px;right:0;border-top:2px solid var(--red);pointer-events:none}
 .calnow::before{content:"";position:absolute;left:-4px;top:-5px;width:8px;height:8px;border-radius:50%;background:var(--red)}
 .calu{padding:3px 0}
+.wd{margin:0;position:relative}
+.wd input{position:absolute;opacity:0;width:1px;height:1px}
+.wd span{display:inline-block;min-width:30px;text-align:center;border:1px solid var(--line);border-radius:16px;padding:3px 6px;color:var(--fg);cursor:pointer}
+.wd input:checked+span{background:var(--red);border-color:var(--red);color:#fff}
 .calrs{position:absolute;left:0;right:0;bottom:0;height:9px;cursor:ns-resize}
 .calrs::after{content:"";position:absolute;left:50%;bottom:3px;width:24px;height:3px;margin-left:-12px;border-radius:2px;background:var(--cc,var(--acc));opacity:.7}
 .cale{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
@@ -260,10 +265,10 @@ const icatOf = (i) => i.cat || (/住宿|飯店|酒店|旅館|民宿|入住|退�
 const icatIcon = (c) => (ICATS.find((x) => x[0] === c) || ICATS[0])[1];
 const MODES = [["🚶 步行", "walking"], ["🚃 電車/地鐵", "transit"], ["🚌 公車", "transit"], ["🚕 計程車", "driving"], ["🚗 開車", "driving"], ["✈️ 飛機", ""], ["⛴ 船", ""]];
 const SCHEMA = {
-  itin: [["date", "日期(住宿＝入住日)", "date"], ["endDate", "結束日期(住宿＝退房日，跨天才填)", "date"], ["time", "開始時間(住宿＝入住時間)", "time"], ["end", "結束時間(住宿＝退房時間；沒填算 1 小時)", "time"], ["title", "活動", "text", 1], ["cat", "類型", "select", 0, ICATS.map((x) => x[0])], ["place", "地點(可貼Google地圖連結)", "text"], ["hours", "營業時間(選填，例：10:00-18:00 週一休)", "text"], ["mode", "從上一個行程怎麼過去", "select", 0, ["", ...MODES.map((m) => m[0])]], ["note", "備註", "textarea"]],
+  itin: [["date", "日期(住宿＝入住日)", "date"], ["endDate", "結束日期(住宿＝退房日，跨天才填)", "date"], ["time", "開始時間(住宿＝入住時間)", "time"], ["end", "結束時間(住宿＝退房時間；沒填算 1 小時)", "time"], ["title", "活動", "text", 1], ["cat", "類型", "select", 0, ICATS.map((x) => x[0])], ["place", "地點(可貼Google地圖連結)", "text"], ["hours", "營業時間(排進行程會自動檢查)", "hours"], ["mode", "從上一個行程怎麼過去", "select", 0, ["", ...MODES.map((m) => m[0])]], ["note", "備註", "textarea"]],
   shop: [["name", "要買什麼", "text", 1], ["cat", "分類", "select", 0, SHOP_CATS], ["where", "在哪買(店名/地點)", "text"], ["price", "預估價格", "number"], ["cur", "幣別", "cur"], ["qty", "數量", "number"], ["who", "送誰／自用", "text"], ["file", "商品照片(給店員看)", "file"], ["note", "備註", "textarea"]],
   wallet: [["date", "日期", "date"], ["amt", "換到的外幣金額(負數=調整減少)", "number", 1], ["cur", "幣別", "cur"], ["cost", "花了多少本國幣(選填，用來算實際匯率)", "number"], ["note", "備註(在哪換)", "text"]],
-  spots: [["name", "名稱", "text", 1], ["cat", "分類", "select", 0, SPOT_CATS], ["city", "城市/區域", "text"], ["addr", "地址或地圖連結", "text"], ["hours", "營業時間(例：10:00-18:00 週一休，排進行程會自動檢查)", "text"], ["price", "門票/預算", "text"], ["prio", "優先", "select", 0, ["必去", "想去", "有空再去"]], ["note", "備註", "textarea"]],
+  spots: [["name", "名稱", "text", 1], ["cat", "分類", "select", 0, SPOT_CATS], ["city", "城市/區域", "text"], ["addr", "地址或地圖連結", "text"], ["hours", "營業時間(排進行程會自動檢查)", "hours"], ["price", "門票/預算", "text"], ["prio", "優先", "select", 0, ["必去", "想去", "有空再去"]], ["note", "備註", "textarea"]],
   books: [["type", "類型", "select", 0, BOOK_TYPES], ["title", "名稱(航班號/飯店名)", "text", 1], ["from", "出發地/地址", "text"], ["to", "目的地", "text"], ["start", "開始(起飛/入住)", "datetime-local"], ["end", "結束(抵達/退房)", "datetime-local"], ["code", "訂位代號", "text"], ["seat", "座位/房型", "text"], ["price", "金額", "number"], ["cur", "幣別", "cur"], ["paid", "已付款", "check"], ["note", "備註", "textarea"]],
   tickets: [["cat", "分類", "select", 0, TK_CATS], ["title", "名稱", "text", 1], ["date", "使用日期", "date"], ["code", "號碼/QR內容", "text"], ["file", "檔案(PDF/截圖)", "file"], ["used", "已使用", "check"], ["note", "備註", "textarea"]],
   exp: [["date", "日期", "date"], ["cat", "分類", "select", 0, EXP_CATS], ["amt", "金額", "number", 1], ["cur", "幣別", "cur"], ["note", "項目", "text"], ["store", "店家(退稅／報帳用，選填)", "text"], ["payer", "誰付", "payer"], ["split", "分攤", "split"], ["pay", "付款方式", "select", 0, ["現金", "信用卡", "交通卡", "行動支付"]], ["file", "收據照片", "file"], ["tf", "可退稅", "check"], ["claim", "要報帳", "check"]],
@@ -284,6 +289,30 @@ const DEFAULTS = {
   phr: () => ({}),
 };
 
+// ===== 營業時間選擇器 =====
+const WDS = [[1, "一"], [2, "二"], [3, "三"], [4, "四"], [5, "五"], [6, "六"], [0, "日"]];
+function hoursPicker(v) {
+  const h = parseHours(v) || { closed: new Set() }, all = h.open === 0 && h.close === 1440;
+  // 認不出來的文字留在「其他說明」
+  const extra = h.open != null || h.closed.size
+    ? v.replace(/(\d{1,2})[:：]?(\d{2})\s*[-~〜～–—至到]\s*(\d{1,2})[:：]?(\d{2})/, "").replace(/24\s*(小時|時間|h|hours)/i, "")
+        .replace(/((?:週|周|星期|禮拜)[一二三四五六日天]|[月火水木金土日]曜日?|\b(?:sun|mon|tue|wed|thu|fri|sat)[a-z]*\.?)[、,，和及\s]*/gi, "")
+        .replace(/(定休日?|公休|休館日?|店休|休業|休み|closed|休)[:：]?/gi, "").replace(/^[\s、,，;；()（）:：]+|[\s、,，;；()（）:：]+$/g, "").replace(/\(\s*\)|（\s*）/g, "").trim()
+    : v;
+  const tv = (m) => (m == null ? "" : hm(m % 1440));
+  return `<div class="hrs"><div class="row" style="flex-wrap:nowrap"><input type="time" name="h_o" step="900" value="${all ? "" : tv(h.open)}" aria-label="開門"><span class="mut">～</span><input type="time" name="h_c" step="900" value="${all ? "" : tv(h.close)}" aria-label="關門"></div>
+    <div class="row" style="margin-top:6px;gap:4px"><span class="mut">公休</span>${WDS.map(([d, n]) => `<label class="wd"><input type="checkbox" name="h_off" value="${d}" ${h.closed.has(d) ? "checked" : ""}><span>${n}</span></label>`).join("")}
+      <label style="margin:0 0 0 6px"><input type="checkbox" name="h_24" style="width:auto" ${all ? "checked" : ""}> 24 小時</label></div>
+    <input name="h_x" placeholder="其他說明(選填，例：最後點餐 20:30)" value="${esc(extra)}" style="margin-top:6px"></div>`;
+}
+function hoursCompose(fd) {
+  const o = fd.get("h_o"), c = fd.get("h_c"), off = fd.getAll("h_off").map(Number), x = (fd.get("h_x") || "").trim();
+  const parts = [];
+  if (fd.has("h_24")) parts.push("24小時"); else if (o && c) parts.push(`${o}-${c}`);
+  if (off.length) parts.push(WDS.filter(([d]) => off.includes(d)).map(([, n]) => "週" + n).join("、") + "休");
+  if (x) parts.push(x);
+  return parts.join(" ");
+}
 function openForm(kind, item, after, pre) {
   const t = T(), isNew = !item, o = item ? { ...item } : { ...DEFAULTS[kind](), ...pre };
   const hint = o._hint; delete o._hint;
@@ -299,6 +328,7 @@ function openForm(kind, item, after, pre) {
     else if (type === "split") h += `<div class="row">${t.people.map((p) => `<label style="margin:0"><input type="checkbox" style="width:auto" name="split" value="${esc(p)}" ${(v || []).includes(p) ? "checked" : ""}> ${esc(p)}</label>`).join("")}</div>`;
     else if (type === "textarea") h += `<textarea name="${k}">${esc(v)}</textarea>`;
     else if (type === "check") h += `<label><input type="checkbox" style="width:auto" name="${k}" ${v ? "checked" : ""}> ${lab}</label>`;
+    else if (type === "hours") h += hoursPicker(v);
     else if (type === "file") h += `${o.fileName ? `<div class="mut">目前：${esc(o.fileName)}</div>` : ""}<input type="file" name="file" accept="image/*,application/pdf">`;
     else h += `<input name="${k}" type="${type}" ${type === "number" ? 'step="any" inputmode="decimal"' : ""} value="${esc(v)}" ${req ? "required" : ""}>`;
   }
@@ -329,7 +359,8 @@ function openForm(kind, item, after, pre) {
           if (o.fileId) { await fdel(o.fileId); window.TravelSync && TravelSync.delFile(t, o.fileId); }
           Object.assign(o, await storeFile(t, file));
         }
-      } else o[k] = (fd.get(k) || "").trim();
+      } else if (type === "hours") o[k] = hoursCompose(fd);
+      else o[k] = (fd.get(k) || "").trim();
     }
     const hadDT = item ? item.date + item.time : "";
     // 地點改了就重新定位
@@ -1021,7 +1052,7 @@ function weekdaysIn(w) {
 function parseHours(s) {
   if (!s) return null;
   const r = { closed: new Set() };
-  const m = s.match(/(\d{1,2})[:：](\d{2})\s*[-~〜～–—至到]\s*(\d{1,2})[:：](\d{2})/);
+  const m = s.match(/(\d{1,2})[:：]?(\d{2})\s*[-~〜～–—至到]\s*(\d{1,2})[:：]?(\d{2})/);
   if (m) { r.open = +m[1] * 60 + +m[2]; r.close = +m[3] * 60 + +m[4]; if (r.close <= r.open) r.close += 1440; }
   if (/24\s*(小時|時間|h|hours)/i.test(s)) { r.open = 0; r.close = 1440; }
   for (const mm of s.matchAll(/公休|定休日?|休館日?|店休|休業|休み|closed|休/gi)) weekdaysIn(s.slice(Math.max(0, mm.index - 12), mm.index + mm[0].length + 10)).forEach((d) => r.closed.add(d));
