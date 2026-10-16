@@ -92,6 +92,15 @@ body.off #offline{display:block}
 .calnow{position:absolute;left:-4px;right:0;border-top:2px solid var(--red);pointer-events:none}
 .calnow::before{content:"";position:absolute;left:-4px;top:-5px;width:8px;height:8px;border-radius:50%;background:var(--red)}
 .calu{padding:3px 0}
+.shopgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:10px}
+.stile{position:relative;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+.simg{width:100%;aspect-ratio:1;object-fit:cover;background:var(--line);display:block}
+.noimg,.sthumb.noimg{display:flex;align-items:center;justify-content:center;font-size:calc(40px*var(--fz,1));color:var(--mut)}
+.sthumb{width:84px;height:84px;object-fit:cover;border-radius:10px;background:var(--line);flex:none}
+.sthumb.noimg{font-size:calc(28px*var(--fz,1))}
+.sbody{padding:8px 10px;flex:1}
+.scheck{position:absolute;top:6px;left:6px;margin:0;background:var(--card);border-radius:6px;padding:3px 5px;line-height:1}
+.stile.done .simg{filter:grayscale(1)}
 .photos{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
 .photos img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;background:var(--line)}
 .dragcard{opacity:.9;box-shadow:0 8px 20px #0004;position:relative;z-index:3}
@@ -1312,7 +1321,7 @@ const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["spots", 
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
 const dayName = (d) => d ? ["日", "一", "二", "三", "四", "五", "六"][new Date(d + "T00:00").getDay()] : "";
 const dt = (s) => s ? s.replace("T", " ") : "";
-const UI_KEYS = ["iv", "tool", "pk", "ex", "pm", "pg"];
+const UI_KEYS = ["iv", "tool", "pk", "ex", "pm", "pg", "sv"];
 // 新版行程預設用行事曆; 以前停在「清單」的也切過去一次
 if (S.ui && !S.ui.cal1) { if (S.ui.iv === "清單") S.ui.iv = "行事曆"; S.ui.cal1 = 1; }
 let filt = { ...(S.ui || {}) };
@@ -1534,15 +1543,37 @@ const fabKind = () => S.tab === "itin" && filt.iv === "日記" ? null : S.tab ==
 
 function shopHtml(t) {
   if (!t.shop.length) return `<div class="empty">必買清單是空的，按 ＋ 新增<br>可以附商品照片，到店裡直接給店員看</div>`;
-  const left = t.shop.filter((x) => !x.ok), done = t.shop.length - left.length;
+  const left = t.shop.filter((x) => !x.ok), done = t.shop.length - left.length, grid = (filt.sv || "圖卡") === "圖卡";
   const est = (arr) => arr.reduce((s, x) => s + toHome((+x.price || 0) * (+x.qty || 1), x.cur), 0);
   const byCat = {}; t.shop.forEach((x) => (byCat[x.cat] ||= []).push(x));
-  return `<div class="card"><div class="row"><span class="sp">已買 ${done}/${t.shop.length}</span><span class="mut">還沒買的預估 ${fmt(est(left))} ${t.home}</span></div><div class="bar"><i style="width:${(done / t.shop.length) * 100}%"></i></div></div>` +
-    Object.entries(byCat).map(([c, arr]) => `<h2>${esc(c)}</h2>` + arr.sort((a, b) => !!a.ok - !!b.ok).map((x) => `<div class="card ${x.ok ? "done" : ""}" data-edit="shop:${x.id}">
-      <div class="row"><input type="checkbox" style="width:auto" data-act="shoptog" data-id="${x.id}" ${x.ok ? "checked" : ""}><h3 class="sp" style="margin:0">${esc(x.name)}${+x.qty > 1 ? ` ×${x.qty}` : ""}</h3>${x.price ? `<b>${fmt(x.price, 2)} ${x.cur}</b>` : ""}</div>
-      <div class="mut">${[x.where && "📍 " + x.where, x.who && "🎁 " + x.who].filter(Boolean).map(esc).join("・")}${x.price && x.cur !== t.home ? `・≈ ${fmt(toHome(x.price * (+x.qty || 1), x.cur))} ${t.home}` : ""}</div>
-      ${x.note ? `<div class="mut" style="white-space:pre-wrap">${esc(x.note)}</div>` : ""}
-      <div class="row" style="margin-top:6px">${x.fileId ? `<button class="sm" data-act="fopen" data-k="shop" data-id="${x.id}">🖼 照片</button>` : ""}${x.ok ? "" : `<button class="sm pri" data-act="shopbuy" data-id="${x.id}">🛒 買了，記帳</button>`}</div></div>`).join("")).join("");
+  const img = (x, cls) => x.fileId && !/pdf/.test(x.fileType || "") ? `<img class="${cls}" data-fid="${x.fileId}" data-act="shopimg" data-id="${x.id}" alt="${esc(x.name)}">` : `<div class="${cls} noimg" data-edit="shop:${x.id}">🛍</div>`;
+  const price = (x) => x.price ? `${fmt(x.price, 2)} ${x.cur}${x.cur !== t.home ? `<span class="mut"> ≈${fmt(toHome(x.price * (+x.qty || 1), x.cur))}</span>` : ""}` : "";
+  const meta = (x) => [x.where && "📍 " + esc(x.where), x.who && "🎁 " + esc(x.who)].filter(Boolean).join("・");
+  return `<div class="card"><div class="row"><span class="sp">已買 ${done}/${t.shop.length}</span><span class="mut">還沒買的預估 ${fmt(est(left))} ${t.home}</span></div><div class="bar"><i style="width:${(done / t.shop.length) * 100}%"></i></div></div>
+    <div class="chips">${["圖卡", "清單"].map((m) => `<button class="${m === (filt.sv || "圖卡") ? "on" : ""}" data-f="sv" data-v="${m}">${m === "圖卡" ? "🖼" : "📋"} ${m}</button>`).join("")}</div>` +
+    Object.entries(byCat).map(([c, arr]) => `<h2>${esc(c)} <span class="mut" style="font-weight:400">${arr.filter((x) => x.ok).length}/${arr.length}</span></h2>` + (grid
+      ? `<div class="shopgrid">${arr.sort((a, b) => !!a.ok - !!b.ok).map((x) => `<div class="stile ${x.ok ? "done" : ""}">
+          ${img(x, "simg")}
+          <label class="scheck"><input type="checkbox" style="width:auto" data-act="shoptog" data-id="${x.id}" ${x.ok ? "checked" : ""}></label>
+          <div class="sbody" data-edit="shop:${x.id}"><b>${esc(x.name)}${+x.qty > 1 ? ` ×${x.qty}` : ""}</b><div style="font-size:calc(13px*var(--fz,1))">${price(x)}</div><div class="mut" style="font-size:calc(12px*var(--fz,1))">${meta(x)}</div></div>
+          ${x.ok ? "" : `<button class="sm pri" data-act="shopbuy" data-id="${x.id}" style="margin:0 8px 8px">🛒 買了，記帳</button>`}</div>`).join("")}</div>`
+      : arr.sort((a, b) => !!a.ok - !!b.ok).map((x) => `<div class="card row ${x.ok ? "done" : ""}" style="align-items:flex-start" data-edit="shop:${x.id}">
+          ${img(x, "sthumb")}
+          <div class="sp"><div class="row"><input type="checkbox" style="width:auto" data-act="shoptog" data-id="${x.id}" ${x.ok ? "checked" : ""}><h3 class="sp" style="margin:0">${esc(x.name)}${+x.qty > 1 ? ` ×${x.qty}` : ""}</h3></div>
+          <div>${price(x)}</div><div class="mut">${meta(x)}</div>${x.note ? `<div class="mut" style="white-space:pre-wrap">${esc(x.note)}</div>` : ""}
+          ${x.ok ? "" : `<button class="sm pri" data-act="shopbuy" data-id="${x.id}" style="margin-top:6px">🛒 買了，記帳</button>`}</div></div>`).join(""))
+    ).join("");
+}
+// 商品照片放大(給店員看)
+async function showShopImg(t, x) {
+  let b = await fget(x.fileId);
+  if (!b && window.TravelSync && TravelSync.user) { b = await TravelSync.getFile(t, x.fileId); if (b) await fput(x.fileId, b); }
+  if (!b) return alert("找不到照片（可能在別的裝置上傳）");
+  const dlg = $("#dlg"); dlg.onclose = null;
+  $("#dlgForm").innerHTML = `<img src="${URL.createObjectURL(b)}" style="width:100%;max-height:70vh;object-fit:contain;border-radius:8px;background:#fff">
+    <div class="huge" style="font-size:calc(26px*var(--fz,1));padding:10px 0 0">${esc(x.name)}</div>${x.note ? `<div class="mut" style="text-align:center">${esc(x.note)}</div>` : ""}
+    <div class="row" style="margin-top:12px"><span class="sp"></span><button value="cancel" class="pri">關閉</button></div>`;
+  dlg.showModal();
 }
 function itinCard(i, drag) {
   return `<div class="card row" data-edit="itin:${i.id}" data-iid="${i.id}" style="align-items:flex-start">${drag ? '<div class="handle noprint" data-drag title="拖拉排序">⠿</div>' : ""}<div class="time">${esc(i.time || "--:--")}${i.end ? `<div class="mut" style="font-weight:400">${esc(i.end)}</div>` : ""}</div>
@@ -1580,7 +1611,7 @@ function render() {
   $("#fab").style.display = fabKind() ? "" : "none";
   if (S.tab === "fx") toolBind(t);
   if (S.tab === "itin" && filt.iv === "地圖") initMap(t);
-  if ((S.tab === "exp" && filt.ex === "收據整理") || (S.tab === "itin" && filt.iv === "日記")) fillThumbs();
+  if ((S.tab === "exp" && filt.ex === "收據整理") || (S.tab === "itin" && filt.iv === "日記") || (S.tab === "pack" && (filt.pk || "必買") === "必買")) fillThumbs();
   if (S.tab === "itin" && (filt.iv || "行事曆") === "行事曆") calScroll();
   if ($("#ocrIn")) $("#ocrIn").onchange = (e) => { const f = e.target.files[0]; if (f) doOcr(f).catch((err) => alert("失敗：" + err.message)); };
   loadWx(t);
@@ -1647,6 +1678,7 @@ document.addEventListener("click", async (e) => {
     else if (act === "rcsv") return receiptsCsv(t);
     else if (act === "rprint") return window.print();
     else if (act === "addwallet") return openForm("wallet");
+    else if (act === "shopimg") return showShopImg(t, t.shop.find((y) => y.id === id));
     else if (act === "shoptog") { const x = t.shop.find((y) => y.id === id); x.ok = el.checked; }
     else if (act === "shopbuy") {
       const x = t.shop.find((y) => y.id === id);
