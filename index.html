@@ -139,6 +139,11 @@ dialog form{overflow-x:hidden}
 .calrs::after{content:"";position:absolute;left:50%;bottom:3px;width:24px;height:3px;margin-left:-12px;border-radius:2px;background:var(--cc,var(--acc));opacity:.7}
 .cale{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .uscard.dropok{outline:3px dashed var(--acc);background:color-mix(in srgb,var(--acc) 15%,var(--card))}
+#daydrop{position:fixed;left:0;right:0;top:62px;z-index:45;display:flex;gap:6px;align-items:center;overflow-x:auto;padding:10px 12px;background:color-mix(in srgb,var(--card) 92%,transparent);border-bottom:1px solid var(--line);box-shadow:0 4px 14px #0004;backdrop-filter:blur(6px)}
+.ddchip{white-space:nowrap;border:2px dashed var(--line);border-radius:18px;padding:7px 12px;font-size:calc(14px*var(--fz,1))}
+.ddchip.on{border-color:var(--acc);background:var(--acc);color:#fff;border-style:solid}
+.caltr{position:absolute;left:2px;width:46%;border-radius:6px;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--mut) 22%,transparent) 0 6px,transparent 6px 12px);border:1px dashed color-mix(in srgb,var(--mut) 60%,transparent);font-size:calc(11px*var(--fz,1));color:var(--mut);padding:0 6px;overflow:hidden;pointer-events:none;display:flex;align-items:center;box-sizing:border-box}
+.caltr.late{border-color:var(--red);color:var(--red);background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--red) 20%,transparent) 0 6px,transparent 6px 12px)}
 .usrow{touch-action:pan-y;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;cursor:grab}
 .usrow .handle{margin:0 4px 0 0}
 .dragghost{position:fixed;width:140px;height:auto;padding:6px 8px;z-index:50;pointer-events:none;box-shadow:0 8px 20px #0006;border-radius:8px}
@@ -302,7 +307,7 @@ const icatOf = (i) => i.cat || (/住宿|飯店|酒店|旅館|民宿|入住|退�
 const icatIcon = (c) => (ICATS.find((x) => x[0] === c) || ICATS[0])[1];
 const MODES = [["🚶 步行", "walking"], ["🚃 電車/地鐵", "transit"], ["🚌 公車", "transit"], ["🚕 計程車", "driving"], ["🚗 開車", "driving"], ["✈️ 飛機", ""], ["⛴ 船", ""]];
 const SCHEMA = {
-  itin: [["date", "日期(住宿＝入住日)", "date"], ["endDate", "結束日期(住宿＝退房日，跨天才填)", "date"], ["time", "開始時間(住宿＝入住時間)", "time"], ["end", "結束時間(住宿＝退房時間；沒填算 1 小時)", "time"], ["title", "活動", "text", 1], ["cat", "類型", "select", 0, ICATS.map((x) => x[0])], ["place", "地點(可貼Google地圖連結)", "text"], ["hours", "營業時間(排進行程會自動檢查)", "hours"], ["mode", "從上一個行程怎麼過去", "select", 0, ["", ...MODES.map((m) => m[0])]], ["note", "備註", "textarea"]],
+  itin: [["date", "日期(住宿＝入住日)", "date"], ["endDate", "結束日期(住宿＝退房日，跨天才填)", "date"], ["time", "開始時間(住宿＝入住時間)", "time"], ["end", "結束時間(住宿＝退房時間；沒填算 1 小時)", "time"], ["title", "活動", "text", 1], ["cat", "類型", "select", 0, ICATS.map((x) => x[0])], ["place", "地點(可貼Google地圖連結)", "text"], ["hours", "營業時間(排進行程會自動檢查)", "hours"], ["mode", "從上一個行程怎麼過去", "select", 0, ["", ...MODES.map((m) => m[0])]], ["travel", "交通時間(分鐘，選填；沒填會依距離估)", "number"], ["note", "備註", "textarea"]],
   shop: [["name", "要買什麼", "text", 1], ["cat", "分類", "select", 0, SHOP_CATS], ["where", "在哪買(店名/地點)", "text"], ["price", "預估價格", "number"], ["cur", "幣別", "cur"], ["qty", "數量", "number"], ["who", "送誰／自用", "text"], ["file", "商品照片(給店員看)", "file"], ["note", "備註", "textarea"]],
   wallet: [["date", "日期", "date"], ["amt", "換到的外幣金額(負數=調整減少)", "number", 1], ["cur", "幣別", "cur"], ["cost", "花了多少本國幣(選填，用來算實際匯率)", "number"], ["note", "備註(在哪換)", "text"]],
   spots: [["name", "名稱", "text", 1], ["cat", "分類", "select", 0, SPOT_CATS], ["city", "城市/區域", "text"], ["addr", "地址或地圖連結", "text"], ["hours", "營業時間(排進行程會自動檢查)", "hours"], ["price", "門票/預算", "text"], ["prio", "優先", "select", 0, ["必去", "想去", "有空再去"]], ["note", "備註", "textarea"]],
@@ -813,11 +818,19 @@ function distKm(a, b) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 const geoQ = (x) => x.lat != null ? `${x.lat},${x.lon}` : x.place && !isUrl(x.place) ? x.place : x.title;
+// 交通時間: 有填用填的; 沒填但有座標, 依交通方式估(直線距離×1.3 繞路)
+function travelMin(a, b) {
+  if (+b.travel > 0) return { m: +b.travel, est: false };
+  const d = distKm(a, b); if (d == null) return null;
+  const mode = (MODES.find((x) => x[0] === b.mode) || [, "transit"])[1];
+  const km = d * 1.3, m = mode === "walking" ? (km / 4.5) * 60 : mode === "driving" ? 5 + (km / 25) * 60 : mode === "transit" ? (d < 1 ? (km / 4.5) * 60 : 10 + (km / 25) * 60) : null;
+  return m == null ? null : { m: Math.max(5, Math.round(m / 5) * 5), est: true };
+}
 function connHtml(a, b) {
   const m = MODES.find((x) => x[0] === b.mode), d = distKm(a, b);
   const tm = m ? m[1] : "transit";
   const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(geoQ(a))}&destination=${encodeURIComponent(geoQ(b))}${tm ? "&travelmode=" + tm : ""}`;
-  const walk = d != null && d < 2 && (!m || m[1] === "walking") ? `・走路約 ${Math.max(1, Math.round((d * 1.3 / 4.5) * 60))} 分` : "";
+  const tv = travelMin(a, b), walk = tv ? `・${tv.est ? "約 " : ""}${tv.m} 分鐘` : "";
   return `<div class="conn">↓ ${m ? esc(m[0]) : '<span style="opacity:.7">交通方式？</span>'}${d != null ? `・直線 ${d < 1 ? Math.round(d * 1000) + " m" : fmt(d, 1) + " km"}` : ""}${walk}・<a href="${url}" target="_blank" rel="noopener">查路線 ↗</a></div>`;
 }
 
@@ -1428,8 +1441,17 @@ function calHtml(t) {
   const nowM = d === today() ? new Date().getHours() * 60 + new Date().getMinutes() : null;
   h += `<div class="cal" style="height:${(hi - lo) * HPX}px" data-act="calnew" data-lo="${lo}">`;
   for (let k = lo; k <= hi; k++) h += `<div class="calh" style="top:${(k - lo) * HPX}px"><span>${String(k % 24).padStart(2, "0")}:00</span></div>`;
+  // 交通時段: 畫在每個行程前面; 上一個結束+交通 > 這個開始 → 來不及
+  const seq = evs.filter((v) => !v.label).sort((a, b) => a.s - b.s), late = new Set();
+  for (let k = 1; k < seq.length; k++) {
+    const a = seq[k - 1], b = seq[k], tv = travelMin(a.i, b.i); if (!tv) continue;
+    const bad = a.e + tv.m > b.s, st0 = bad ? a.e : b.s - tv.m; // 來不及: 從上一個結束開始畫, 看得出超過多少
+    if (bad) late.add(b.i.id);
+    const icon = (MODES.find((x) => x[0] === b.i.mode) || ["🚃"])[0].split(" ")[0];
+    h += `<div class="caltr${bad ? " late" : ""}" style="top:${((Math.max(st0, lo * 60) - lo * 60) / 60) * HPX}px;height:${Math.max(14, (tv.m / 60) * HPX - 2)}px">${icon} ${tv.est ? "約" : ""}${tv.m}分${bad ? " 來不及" : ""}</div>`;
+  }
   for (const v of calLayout(evs)) {
-    const top = ((v.s - lo * 60) / 60) * HPX, ht = Math.max(26, ((v.e - v.s) / 60) * HPX - 3), w = 100 / v.cols, i = v.i, warn = hoursWarn(i, t);
+    const top = ((v.s - lo * 60) / 60) * HPX, ht = Math.max(26, ((v.e - v.s) / 60) * HPX - 3), w = 100 / v.cols, i = v.i, warn = hoursWarn(i, t) || (late.has(i.id) ? "⚠️ 交通來不及" : "");
     const m = MODES.find((x) => x[0] === i.mode);
     h += `<div class="cale c-${icatOf(i)}${warn ? " warn" : ""}" data-edit="itin:${i.id}" ${v.label ? "" : `data-cdrag="${i.id}"`} style="top:${top}px;height:${ht}px;left:calc(${v.col * w}% + 2px);width:calc(${w}% - 4px)">${v.label ? "" : '<div class="calrs noprint" data-crs></div>'}
       <div class="calt">${v.label ? `${v.label} ${esc(v.range)}` : `${esc(i.time)}${i.end ? "–" + esc(i.end) : ""}`}${m && !v.label ? " " + m[0].split(" ")[0] : ""}</div>
@@ -1448,7 +1470,7 @@ document.addEventListener("pointerdown", (e) => {
   const cal = el.closest(".cal"), lo = +cal.dataset.lo;
   const st = { el, id: el.dataset.cdrag, resize: !!e.target.closest("[data-crs]"), y0: e.clientY, top0: parseFloat(el.style.top), h0: parseFloat(el.style.height) + 3, lo, maxY: parseFloat(cal.style.height), active: false, pid: e.pointerId };
   const SNAP = HPX / 4;
-  const activate = () => { st.active = calDrag.on = true; el.classList.add("caldrag"); navigator.vibrate && navigator.vibrate(15); };
+  const activate = () => { st.active = calDrag.on = true; el.classList.add("caldrag"); navigator.vibrate && navigator.vibrate(15); if (!st.resize) dayDrop.show(T()); };
   if (e.pointerType === "mouse") st.armed = true; else st.timer = setTimeout(() => { st.armed = true; activate(); }, 350);
   const move = (ev) => {
     if (ev.pointerId !== st.pid) return;
@@ -1458,9 +1480,10 @@ document.addEventListener("pointerdown", (e) => {
       else if (!st.armed && Math.abs(dy) > 8) return end(); // 手指先移動 = 捲動頁面, 不拖
       if (!st.active) return;
     }
-    if (ev.clientY < 90) scrollBy(0, -10); else if (ev.clientY > innerHeight - 100) scrollBy(0, 10);
+    st.toDay = !st.resize && dayDrop.at(ev.clientX, ev.clientY);
+    if (!dayDrop.over(ev.clientY)) { if (ev.clientY < 90) scrollBy(0, -10); else if (ev.clientY > innerHeight - 100) scrollBy(0, 10); }
     const ddy = ev.clientY - st.y0;
-    const uc = !st.resize && $(".uscard");
+    const uc = !st.resize && !st.toDay && $(".uscard");
     if (uc) { const r = uc.getBoundingClientRect(); st.toUns = ev.clientY >= r.top - 10 && ev.clientY <= r.bottom; uc.classList.toggle("dropok", st.toUns); el.style.opacity = st.toUns ? 0.4 : ""; }
     if (st.resize) { el.style.height = Math.max(SNAP, Math.round((st.h0 + ddy) / SNAP) * SNAP) - 3 + "px"; }
     else { el.style.top = Math.min(st.maxY - SNAP, Math.max(0, Math.round((st.top0 + ddy) / SNAP) * SNAP)) + "px"; }
@@ -1471,7 +1494,7 @@ document.addEventListener("pointerdown", (e) => {
   const end = () => {
     clearTimeout(st.timer);
     removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", end);
-    el.classList.remove("caldrag"); el.style.opacity = ""; calDrag.on = false;
+    el.classList.remove("caldrag"); el.style.opacity = ""; calDrag.on = false; dayDrop.hide();
     const uc = $(".uscard"); uc && uc.classList.remove("dropok");
   };
   const up = () => {
@@ -1479,6 +1502,10 @@ document.addEventListener("pointerdown", (e) => {
     if (!was) return;
     calDrag.until = Date.now() + 120; // 只吃掉放開滑鼠/手指那一下產生的點擊
     const t = T(), it = t.itin.find((x) => x.id === st.id); if (!it) return;
+    if (st.toDay) {
+      const from = it.date; it.date = st.toDay; placeByTime(t, it); save(); render();
+      return toast(`「${it.title}」移到 ${st.toDay.slice(5)}（${dayName(st.toDay)}）${it.time || ""}`, "復原", () => { it.date = from; placeByTime(t, it); save(); render(); });
+    }
     if (st.toUns) return unschedule(t, it);
     const hadEnd = !!it.end;
     it.time = hm(st.s);
@@ -1500,10 +1527,14 @@ document.addEventListener("pointerdown", (e) => {
     ghost = document.createElement("div"); ghost.className = `cale c-${cat} dragghost`; ghost.innerHTML = `<b>${icatIcon(cat)} ${esc(sp.name)}</b>`;
     document.body.appendChild(ghost);
     const cal = $(".cal"); if (cal) { prev = document.createElement("div"); prev.className = `cale c-${cat} calprev`; prev.style.display = "none"; cal.appendChild(prev); }
+    dayDrop.show(t);
   };
   if (!st.armed) st.timer = setTimeout(() => { st.armed = true; activate(); place(st.lx ?? st.x0, st.ly ?? st.y0); }, 350);
   const place = (x, y) => {
     ghost.style.left = x - 70 + "px"; ghost.style.top = y - 18 + "px";
+    st.toDay = dayDrop.at(x, y);
+    if (st.toDay) { if (prev) prev.style.display = "none"; minute = null; ghost.style.opacity = 1; ghost.innerHTML = `<b>${icatIcon(cat)} ${esc(sp.name)}</b><div class="mut">→ ${st.toDay.slice(5)} ${freeSlot(t, st.toDay, sp) || "（那天排不進）"}</div>`; return; }
+    ghost.innerHTML = `<b>${icatIcon(cat)} ${esc(sp.name)}</b>`;
     const cal = $(".cal"); if (!cal || !prev) return;
     const r = cal.getBoundingClientRect();
     if (x < r.left - 40 || x > r.right || y < r.top || y > r.bottom) { prev.style.display = "none"; minute = null; ghost.style.opacity = 1; return; }
@@ -1520,19 +1551,25 @@ document.addEventListener("pointerdown", (e) => {
     st.lx = ev.clientX; st.ly = ev.clientY;
     const d = Math.hypot(ev.clientX - st.x0, ev.clientY - st.y0);
     if (!st.active) { if (st.armed && d > 4) activate(); else if (!st.armed && d > 8) return end(); if (!st.active) return; }
-    if (ev.clientY < 90) scrollBy(0, -12); else if (ev.clientY > innerHeight - 100) scrollBy(0, 12);
+    if (!dayDrop.over(ev.clientY)) { if (ev.clientY < 90) scrollBy(0, -12); else if (ev.clientY > innerHeight - 100) scrollBy(0, 12); }
     place(ev.clientX, ev.clientY);
   };
   const end = () => {
     clearTimeout(st.timer); calDrag.on = false;
     removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", end);
-    ghost && ghost.remove(); prev && prev.remove();
+    ghost && ghost.remove(); prev && prev.remove(); dayDrop.hide();
   };
   const up = () => {
-    const ok = st.active && minute != null; end();
-    if (!st.active) return;
-    calDrag.until = Date.now() + 120;
-    if (!ok) return;
+    if (st.active && st.toDay) { // 拖到別天: 用那天第一個空檔
+      const slot = freeSlot(t, st.toDay, sp); end(); calDrag.until = Date.now() + 120;
+      if (!slot) return toast(`${st.toDay.slice(5)} 排不進「${sp.name}」（公休或沒空檔）`);
+      minute = toMin(slot); filt.cd = st.toDay;
+    } else {
+      const ok = st.active && minute != null; end();
+      if (!st.active) return;
+      calDrag.until = Date.now() + 120;
+      if (!ok) return;
+    }
     const it = { id: uid(), date: filt.cd, time: hm(minute), end: hm(Math.min(minute + DUR, 23 * 60 + 59)), title: sp.name, place: sp.addr || sp.name, note: sp.note || "", lat: sp.lat, lon: sp.lon, spotId: sp.id, cat };
     t.itin.push(it); placeByTime(t, it); save(); render();
     toast(`已排入 ${it.time} ${sp.name}`, "復原", () => { t.itin = t.itin.filter((x) => x !== it); save(); render(); });
@@ -1542,6 +1579,25 @@ document.addEventListener("pointerdown", (e) => {
 // 拖移中不要讓頁面跟著捲
 document.addEventListener("touchmove", (e) => { if (calDrag.on) e.preventDefault(); }, { passive: false });
 document.addEventListener("contextmenu", (e) => { if (e.target.closest && e.target.closest("[data-cdrag],[data-sdrag]")) e.preventDefault(); });
+// 拖曳時浮在上方的日期列: 拖到某一天放開 = 移到那天
+const dayDrop = {
+  show(t) {
+    this.hide();
+    const days = calDays(t).filter((x) => x !== filt.cd); if (!days.length) return;
+    const bar = document.createElement("div"); bar.id = "daydrop";
+    bar.innerHTML = `<span class="mut">移到</span>${days.map((x) => `<span class="ddchip" data-day="${x}">${x.slice(5)}(${dayName(x)})</span>`).join("")}`;
+    document.body.appendChild(bar);
+  },
+  // 回傳指到的日期(並高亮), 沒有則 null
+  at(x, y) {
+    const bar = $("#daydrop"); if (!bar) return null;
+    let hit = null;
+    bar.querySelectorAll(".ddchip").forEach((c) => { const r = c.getBoundingClientRect(), on = x >= r.left && x <= r.right && y >= r.top - 6 && y <= r.bottom + 6; c.classList.toggle("on", on); if (on) hit = c.dataset.day; });
+    return hit;
+  },
+  over(y) { const bar = $("#daydrop"); if (!bar) return false; const r = bar.getBoundingClientRect(); return y >= r.top - 10 && y <= r.bottom + 10; },
+  hide() { const b = $("#daydrop"); b && b.remove(); },
+};
 // 行程移回待排景點: 原本從景點排進來的直接拿掉; 自己新增的先變成一個景點
 function unschedule(t, it) {
   const idx = t.itin.indexOf(it); let made = null;
