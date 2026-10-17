@@ -138,6 +138,7 @@ dialog form{overflow-x:hidden}
 .calrs{position:absolute;left:0;right:0;bottom:0;height:9px;cursor:ns-resize}
 .calrs::after{content:"";position:absolute;left:50%;bottom:3px;width:24px;height:3px;margin-left:-12px;border-radius:2px;background:var(--cc,var(--acc));opacity:.7}
 .cale{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.uscard.dropok{outline:3px dashed var(--acc);background:color-mix(in srgb,var(--acc) 15%,var(--card))}
 .usrow{touch-action:pan-y;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;cursor:grab}
 .usrow .handle{margin:0 4px 0 0}
 .dragghost{position:fixed;width:140px;height:auto;padding:6px 8px;z-index:50;pointer-events:none;box-shadow:0 8px 20px #0006;border-radius:8px}
@@ -372,13 +373,14 @@ function openForm(kind, item, after, pre) {
     else if (type === "file") h += `${o.fileName ? `<div class="mut">目前：${esc(o.fileName)}</div>` : ""}<input type="file" name="file" accept="image/*,application/pdf">`;
     else h += `<input name="${k}" type="${type}" ${type === "number" ? 'step="any" inputmode="decimal"' : ""} value="${esc(v)}" ${req ? "required" : ""}>`;
   }
-  h += `<div class="row" style="margin-top:14px">${isNew ? "" : '<button value="del" class="del" formnovalidate>刪除</button>'}<span class="sp"></span><button value="cancel" formnovalidate>取消</button><button value="ok" class="pri">儲存</button></div>`;
+  h += `<div class="row" style="margin-top:14px">${isNew ? "" : '<button value="del" class="del" formnovalidate>刪除</button>'}${!isNew && kind === "itin" && !isMulti(o) ? '<button value="unsched" formnovalidate title="移回待排景點">↩ 移回待排</button>' : ""}<span class="sp"></span><button value="cancel" formnovalidate>取消</button><button value="ok" class="pri">儲存</button></div>`;
   f.innerHTML = h;
   // 新增時直接跳到最重要的欄位(記帳=金額)
   if (isNew) setTimeout(() => { const el = f.elements[kind === "exp" ? "amt" : (SCHEMA[kind].find((x) => x[3]) || [])[0]]; if (el && !el.value) el.focus(); }, 50);
   const dlg = $("#dlg");
   dlg.onclose = async () => {
     const act = dlg.returnValue; dlg.returnValue = "";
+    if (act === "unsched") return unschedule(t, item);
     if (act === "del") {
       // 先移除, 6 秒內可以復原; 沒復原才真的刪檔案
       const idx = t[kind].findIndex((x) => x.id === o.id), gone = t[kind][idx];
@@ -1417,9 +1419,9 @@ function calHtml(t) {
     h += `<div class="calban c-${icatOf(i)}" data-edit="itin:${i.id}">${icatIcon(icatOf(i))} <b>${esc(i.title)}</b><span class="mut">・${icatOf(i) === "住宿" ? `第 ${k} 晚／共 ${N} 晚` : `第 ${k} 天／共 ${N + 1} 天`}・${i.date.slice(5)}～${i.endDate.slice(5)}</span></div>`; }
   if (wh && !wh._iid) h += `<div class="mut" style="margin-bottom:6px">🏨 從 <b>${esc(wh.title)}</b> 出發</div>`;
   const us = unsched(t);
-  if (us.length) {
-    const open = filt.uso !== false;
-    h += `<div class="card noprint" style="padding:8px 10px"><div class="row" data-act="usotog"><b class="sp">📍 待排景點 ${us.length} <span class="mut" style="font-weight:400">・${matchMedia("(pointer:coarse)").matches ? "長按" : "按住"}拖到下面的時間</span></b><span class="mut">${open ? "收起 ▲" : "展開 ▼"}</span></div>
+  {
+    const open = filt.uso !== false && us.length;
+    h += `<div class="card noprint uscard" style="padding:8px 10px"><div class="row" data-act="usotog"><b class="sp">📍 待排景點 ${us.length} <span class="mut" style="font-weight:400">・${us.length ? `${matchMedia("(pointer:coarse)").matches ? "長按" : "按住"}拖到下面的時間；` : ""}排錯的行程可以拖回這裡</span></b><span class="mut">${open ? "收起 ▲" : "展開 ▼"}</span></div>
       ${open ? us.map((sp) => { const slot = freeSlot(t, d, sp); return `<div class="row usrow" data-sdrag="${sp.id}" style="padding:5px 0;border-top:1px solid var(--line)"><span class="handle" title="拖到下面的時間">⠿</span><span class="sp">${icatIcon({ 美食: "美食", 咖啡: "美食", 購物: "購物" }[sp.cat] || "景點")} ${esc(sp.name)}${cpTag(sp.name)} <span class="mut">${esc(sp.prio || "")}${sp.hours ? "・" + esc(sp.hours) : ""}</span></span>${slot ? `<button class="sm pri" data-act="usadd" data-id="${sp.id}" data-tm="${slot}">＋ ${slot}</button>` : '<span class="mut">今天排不進</span>'}</div>`; }).join("") : ""}</div>`;
   }
   if (untimed.length) h += `<div class="card" style="padding:8px 10px"><div class="mut" style="margin-bottom:4px">未排時間（編輯時填時間就會排進下面）</div>${untimed.map((i) => `<div class="calu" data-edit="itin:${i.id}">${icatIcon(icatOf(i))} ${i._lbl ? `<b>${i._lbl}</b> ` : ""}${esc(i.title)}</div>`).join("")}</div>`;
@@ -1458,6 +1460,8 @@ document.addEventListener("pointerdown", (e) => {
     }
     if (ev.clientY < 90) scrollBy(0, -10); else if (ev.clientY > innerHeight - 100) scrollBy(0, 10);
     const ddy = ev.clientY - st.y0;
+    const uc = !st.resize && $(".uscard");
+    if (uc) { const r = uc.getBoundingClientRect(); st.toUns = ev.clientY >= r.top - 10 && ev.clientY <= r.bottom; uc.classList.toggle("dropok", st.toUns); el.style.opacity = st.toUns ? 0.4 : ""; }
     if (st.resize) { el.style.height = Math.max(SNAP, Math.round((st.h0 + ddy) / SNAP) * SNAP) - 3 + "px"; }
     else { el.style.top = Math.min(st.maxY - SNAP, Math.max(0, Math.round((st.top0 + ddy) / SNAP) * SNAP)) + "px"; }
     const sMin = st.lo * 60 + Math.round((parseFloat(el.style.top) / HPX) * 60), eMin = sMin + Math.round(((parseFloat(el.style.height) + 3) / HPX) * 60);
@@ -1467,13 +1471,15 @@ document.addEventListener("pointerdown", (e) => {
   const end = () => {
     clearTimeout(st.timer);
     removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", end);
-    el.classList.remove("caldrag"); calDrag.on = false;
+    el.classList.remove("caldrag"); el.style.opacity = ""; calDrag.on = false;
+    const uc = $(".uscard"); uc && uc.classList.remove("dropok");
   };
   const up = () => {
     const was = st.active && st.s != null; end();
     if (!was) return;
     calDrag.until = Date.now() + 120; // 只吃掉放開滑鼠/手指那一下產生的點擊
     const t = T(), it = t.itin.find((x) => x.id === st.id); if (!it) return;
+    if (st.toUns) return unschedule(t, it);
     const hadEnd = !!it.end;
     it.time = hm(st.s);
     if (st.resize || hadEnd || st.e - st.s !== 60) it.end = hm(st.e);
@@ -1536,6 +1542,16 @@ document.addEventListener("pointerdown", (e) => {
 // 拖移中不要讓頁面跟著捲
 document.addEventListener("touchmove", (e) => { if (calDrag.on) e.preventDefault(); }, { passive: false });
 document.addEventListener("contextmenu", (e) => { if (e.target.closest && e.target.closest("[data-cdrag],[data-sdrag]")) e.preventDefault(); });
+// 行程移回待排景點: 原本從景點排進來的直接拿掉; 自己新增的先變成一個景點
+function unschedule(t, it) {
+  const idx = t.itin.indexOf(it); let made = null;
+  if (!(it.spotId && t.spots.some((s) => s.id === it.spotId))) {
+    made = { id: uid(), name: it.title, cat: { 美食: "美食", 購物: "購物" }[icatOf(it)] || "景點", prio: "想去", addr: it.place || "", hours: it.hours || "", note: it.note || "", lat: it.lat, lon: it.lon };
+    t.spots.push(made);
+  }
+  t.itin.splice(idx, 1); save(); render();
+  toast(`「${it.title}」已移回待排景點`, "復原", () => { t.itin.splice(Math.min(idx, t.itin.length), 0, it); if (made) t.spots = t.spots.filter((s) => s !== made); save(); render(); });
+}
 // 還沒排進行程、也還沒去過的景點(必去優先)
 function unsched(t) {
   const used = new Set(t.itin.flatMap((i) => [i.spotId, i.title]).filter(Boolean)), pr = { 必去: 0, 想去: 1, 有空再去: 2 };
