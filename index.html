@@ -825,16 +825,54 @@ const geoQ = (x) => x.lat != null ? `${x.lat},${x.lon}` : x.place && !isUrl(x.pl
 // 交通時間: 有填用填的; 沒填但有座標, 依交通方式估(直線距離×1.3 繞路)
 function travelMin(a, b) {
   if (+b.travel > 0) return { m: +b.travel, est: false };
+  if (b.gtravel && b.gtravel.k === routeKey(a, b)) return b.gtravel.m != null ? { m: b.gtravel.m, est: false, g: true } : null;
   const d = distKm(a, b); if (d == null) return null;
   const mode = (MODES.find((x) => x[0] === b.mode) || [, "transit"])[1];
   const km = d * 1.3, m = mode === "walking" ? (km / 4.5) * 60 : mode === "driving" ? 5 + (km / 25) * 60 : mode === "transit" ? (d < 1 ? (km / 4.5) * 60 : 10 + (km / 25) * 60) : null;
   return m == null ? null : { m: Math.max(5, Math.round(m / 5) * 5), est: true };
 }
+// ===== Google 路線(Routes API): 有金鑰就用 Google 算真實交通時間, 結果存在行程上 =====
+const GMODE = { walking: "WALK", transit: "TRANSIT", driving: "DRIVE" };
+const routeWp = (x) => x.lat != null ? { location: { latLng: { latitude: x.lat, longitude: x.lon } } } : { address: x.place && !isUrl(x.place) ? x.place : x.title };
+const routeMode = (b) => (MODES.find((x) => x[0] === b.mode) || [, "transit"])[1];
+// 出發時間 = 上一個行程結束(當地時區); 換了地點/方式/時間就重算
+function routeDepart(a) {
+  const t = T(), tz = t.loc && t.loc.tz, off = tz ? tzOff(tz) : -new Date().getTimezoneOffset() / 60;
+  const tm = a.end || a.time; if (!a.date || !tm) return null;
+  const sign = off < 0 ? "-" : "+", hh = String(Math.floor(Math.abs(off))).padStart(2, "0"), mm = String(Math.round((Math.abs(off) % 1) * 60)).padStart(2, "0");
+  return `${a.date}T${tm}:00${sign}${hh}:${mm}`;
+}
+const routeKey = (a, b) => JSON.stringify([routeWp(a), routeWp(b), routeMode(b), routeDepart(a)]);
+const gBusy = new Set(), gFail = new Set(); let gErrShown = false; // gFail: 這次開啟期間失敗過的不再重試
+async function gRoute(a, b) {
+  const mode = GMODE[routeMode(b)]; if (!mode || !S.gkey) return;
+  const k = routeKey(a, b); if (gBusy.has(k) || gFail.has(k)) return; gBusy.add(k);
+  const body = { origin: routeWp(a), destination: routeWp(b), travelMode: mode, languageCode: "zh-TW", units: "METRIC" };
+  const dep = routeDepart(a);
+  if (dep && new Date(dep) > new Date()) body.departureTime = dep; // 過去的時間 Google 不收, 就用現在
+  try {
+    const r = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", { method: "POST", headers: { "Content-Type": "application/json", "X-Goog-Api-Key": S.gkey, "X-Goog-FieldMask": "routes.duration,routes.distanceMeters" }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!r.ok) throw new Error((j.error && j.error.message) || r.status);
+    const route = (j.routes || [])[0];
+    b.gtravel = { k, m: route ? Math.max(1, Math.round(parseInt(route.duration) / 60)) : null, km: route ? Math.round(route.distanceMeters / 100) / 10 : null };
+    save(); if (!$("#dlg").open && !calDrag.on) render();
+  } catch (e) {
+    gFail.add(k);
+    if (!gErrShown) { gErrShown = true; toast("Google 路線查詢失敗：" + String(e.message).slice(0, 60)); }
+  } finally { gBusy.delete(k); }
+}
+// 算某一天所有「沒手填、還沒算過或改過」的行程間交通
+function gRouteDay(t, d) {
+  if (!S.gkey) return;
+  const seq = t.itin.filter((i) => i.date === d && i.time && !isMulti(i)).sort((a, b) => toMin(a.time) - toMin(b.time));
+  for (let k = 1; k < seq.length; k++) { const a = seq[k - 1], b = seq[k]; if (!(+b.travel > 0) && !(b.gtravel && b.gtravel.k === routeKey(a, b))) gRoute(a, b); }
+}
 function connHtml(a, b) {
   const m = MODES.find((x) => x[0] === b.mode), d = distKm(a, b);
   const tm = m ? m[1] : "transit";
   const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(geoQ(a))}&destination=${encodeURIComponent(geoQ(b))}${tm ? "&travelmode=" + tm : ""}`;
-  const tv = travelMin(a, b), walk = tv ? `・${tv.est ? "約 " : ""}${tv.m} 分鐘` : "";
+  const tv = travelMin(a, b), walk = tv ? `・${tv.est ? "約 " : ""}${tv.m} 分鐘${tv.g ? "（Google）" : ""}` : "";
   return `<div class="conn">↓ ${m ? esc(m[0]) : '<span style="opacity:.7">交通方式？</span>'}${d != null ? `・直線 ${d < 1 ? Math.round(d * 1000) + " m" : fmt(d, 1) + " km"}` : ""}${walk}・<a href="${url}" target="_blank" rel="noopener">查路線 ↗</a></div>`;
 }
 
@@ -1454,7 +1492,7 @@ function calHtml(t) {
     const bad = a.e + tv.m > b.s, st0 = bad ? a.e : b.s - tv.m; // 來不及: 從上一個結束開始畫, 看得出超過多少
     if (bad) late.add(b.i.id);
     const icon = (MODES.find((x) => x[0] === b.i.mode) || ["🚃"])[0].split(" ")[0];
-    h += `<div class="caltr${bad ? " late" : ""}" style="top:${((Math.max(st0, lo * 60) - lo * 60) / 60) * HPX}px;height:${Math.max(14, (tv.m / 60) * HPX - 2)}px">${icon} ${tv.est ? "約" : ""}${tv.m}分${bad ? " 來不及" : ""}</div>`;
+    h += `<div class="caltr${bad ? " late" : ""}" title="${tv.g ? "Google 路線" : tv.est ? "依距離估算" : "自己填的"}" style="top:${((Math.max(st0, lo * 60) - lo * 60) / 60) * HPX}px;height:${Math.max(14, (tv.m / 60) * HPX - 2)}px">${icon} ${tv.est ? "約" : ""}${tv.m}分${bad ? " 來不及" : ""}</div>`;
   }
   for (const v of calLayout(evs)) {
     const top = ((v.s - lo * 60) / 60) * HPX, ht = Math.max(26, ((v.e - v.s) / 60) * HPX - 3), w = 100 / v.cols, i = v.i, warn = hoursWarn(i, t) || (late.has(i.id) ? "⚠️ 交通來不及" : "");
@@ -1982,7 +2020,8 @@ function render() {
   if (S.tab === "fx") toolBind(t);
   if (S.tab === "itin" && filt.iv === "地圖") initMap(t);
   if ((S.tab === "tickets" && filt.tk === "優惠券") || (S.tab === "exp" && filt.ex === "收據整理") || (S.tab === "itin" && filt.iv === "日記") || (S.tab === "pack" && (filt.pk || "必買") === "必買")) fillThumbs();
-  if (S.tab === "itin" && (filt.iv || "行事曆") === "行事曆") calScroll();
+  if (S.tab === "itin" && (filt.iv || "行事曆") === "行事曆") { calScroll(); gRouteDay(t, filt.cd); }
+  if (S.tab === "itin" && filt.iv === "清單" && S.gkey) [...new Set(t.itin.map((i) => i.date))].forEach((d) => d && gRouteDay(t, d));
   if ($("#ocrIn")) $("#ocrIn").onchange = (e) => { const f = e.target.files[0]; if (f) doOcr(f).catch((err) => alert("失敗：" + err.message)); };
   loadWx(t);
 }
@@ -2200,6 +2239,8 @@ function openSettings() {
     <label>目的地城市（天氣、時鐘、地圖、緊急電話用）</label><input name="city" value="${esc(t.loc ? t.loc.q : "")}" placeholder="例：東京、首爾、Bangkok、Paris">
     ${t.loc ? `<div class="mut">目前：${esc(t.loc.name)}，${esc(t.loc.country)}（${esc(t.loc.tz)}）</div>` : ""}
     <div class="grid2"><div><label>當地幣別</label><select name="cur">${curOpt(t.cur)}</select></div><div><label>本國幣別</label><select name="home">${curOpt(t.home)}</select></div></div>
+    <label>Google 路線金鑰（選填，填了交通時間改用 Google 計算）</label><input name="gkey" value="${esc(S.gkey || "")}" placeholder="AIza…" autocomplete="off">
+    <div class="mut">只存在這台裝置。申請方式見說明；沒填就用距離粗估。</div>
     <label>手動匯率（1 當地幣 = ? 本國幣，0 = 自動）</label><input type="number" step="any" name="manualRate" value="${t.manualRate || 0}">
     <label>預算（本國幣，0 = 不設）</label><input type="number" step="any" name="budget" value="${t.budget || 0}">
     <label>同行者（逗號分隔，第一位是自己）</label><input name="people" value="${esc(t.people.join(","))}">
@@ -2251,6 +2292,7 @@ function openSettings() {
       S.cur = S.trips[0].id; save(); render(); return;
     }
     if (act !== "ok") return;
+    const gk = (fd.get("gkey") || "").trim(); if (gk !== (S.gkey || "")) { S.gkey = gk; gErrShown = false; gFail.clear(); }
     S.theme = fd.get("theme") || ""; S.fz = +fd.get("fz") || 1; S.mapc = fd.get("mapc") || ""; applyDisplay();
     t.name = fd.get("name").trim() || t.name; t.start = fd.get("start"); t.end = fd.get("end");
     t.cur = fd.get("cur"); t.home = fd.get("home");
