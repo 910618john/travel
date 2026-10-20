@@ -884,10 +884,16 @@ function routeDepart(a) {
   return `${a.date}T${tm}:00${sign}${hh}:${mm}`;
 }
 const routeKey = (a, b) => JSON.stringify([3, routeWp(a), routeWp(b), routeMode(b), routeDepart(a)]); // 2: 有存搭乘步驟的版本
-const gBusy = new Set(), gFail = new Set(); let gErrShown = false; // gFail: 這次開啟期間失敗過的不再重試
+const gBusy = new Set(), gFail = new Set(); let gErrShown = false, gCapShown = false; // gFail: 這次開啟期間失敗過的不再重試
 async function gRoute(a, b) {
   const mode = GMODE[routeMode(b)]; if (!mode || !S.gkey) return;
-  const k = routeKey(a, b); if (gBusy.has(k) || gFail.has(k)) return; gBusy.add(k);
+  const k = routeKey(a, b); if (gBusy.has(k) || gFail.has(k)) return;
+  // 這台裝置每月查詢次數; 到上限就停(避免超過免費額度)
+  const mon = new Date().toISOString().slice(0, 7);
+  if (!S.gcnt || S.gcnt.m !== mon) S.gcnt = { m: mon, n: 0 };
+  const cap = S.gcap == null ? 1000 : +S.gcap;
+  if (cap > 0 && S.gcnt.n >= cap) { if (!gCapShown) { gCapShown = true; toast(`Google 路線本月已查 ${S.gcnt.n} 次，到上限先停，改用距離估算`); } return; }
+  S.gcnt.n++; saveLocal(); gBusy.add(k);
   const body = { origin: routeWp(a), destination: routeWp(b), travelMode: mode, languageCode: "zh-TW", units: "METRIC" };
   const dep = routeDepart(a);
   if (dep && new Date(dep) > new Date()) {
@@ -2362,7 +2368,8 @@ function openSettings() {
     <div class="row" style="margin-top:6px"><button value="export" formnovalidate>匯出備份</button><label class="btn" style="margin:0;color:var(--fg)">匯入備份<input type="file" accept=".json" id="impFile" hidden></label></div>
     <h3 style="margin-top:16px">Google 路線（這台裝置）</h3>
     <label>金鑰（選填，填了交通時間改用 Google 計算）</label><input name="gkey" value="${esc(S.gkey || "")}" placeholder="AIza…" autocomplete="off">
-    <div class="mut">沒填就用距離粗估。</div>
+    <div class="mut">沒填就用距離粗估。本月這台裝置已查 <b>${S.gcnt && S.gcnt.m === new Date().toISOString().slice(0, 7) ? S.gcnt.n : 0}</b> 次（查過的會記住，改了才重查）</div>
+    <label>每月上限（這台裝置，0 = 不限）</label><input type="number" min="0" step="1" name="gcap" value="${S.gcap == null ? 1000 : S.gcap}">
     <h3 style="margin-top:16px">顯示（這台裝置）</h3>
     <div class="grid2" style="grid-template-columns:1fr 1fr 1fr"><div><label>主題</label><select name="theme">${[["", "自動"], ["light", "淺色"], ["dark", "深色"]].map(([v, n]) => `<option value="${v}" ${(S.theme || "") === v ? "selected" : ""}>${n}</option>`).join("")}</select></div>
       <div><label>字體</label><select name="fz">${[["1", "標準"], ["1.15", "大"], ["1.3", "特大"]].map(([v, n]) => `<option value="${v}" ${String(S.fz || 1) === v ? "selected" : ""}>${n}</option>`).join("")}</select></div>
@@ -2406,6 +2413,7 @@ function openSettings() {
     }
     if (act !== "ok") return;
     const gk = (fd.get("gkey") || "").trim(); if (gk !== (S.gkey || "")) { S.gkey = gk; gErrShown = false; gFail.clear(); }
+    const gc = Math.max(0, Math.round(+fd.get("gcap") || 0)); if (gc !== (S.gcap == null ? 1000 : S.gcap)) { S.gcap = gc; gCapShown = false; }
     S.theme = fd.get("theme") || ""; S.fz = +fd.get("fz") || 1; S.mapc = fd.get("mapc") || ""; applyDisplay();
     t.name = fd.get("name").trim() || t.name; t.start = fd.get("start"); t.end = fd.get("end");
     t.cur = fd.get("cur"); t.home = fd.get("home");
