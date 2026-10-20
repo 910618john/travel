@@ -146,7 +146,7 @@ dialog form{overflow-x:hidden}
 #daydrop{position:fixed;left:0;right:0;top:62px;z-index:45;display:flex;gap:6px;align-items:center;overflow-x:auto;padding:10px 12px;background:color-mix(in srgb,var(--card) 92%,transparent);border-bottom:1px solid var(--line);box-shadow:0 4px 14px #0004;backdrop-filter:blur(6px)}
 .ddchip{white-space:nowrap;border:2px dashed var(--line);border-radius:18px;padding:7px 12px;font-size:calc(14px*var(--fz,1))}
 .ddchip.on{border-color:var(--acc);background:var(--acc);color:#fff;border-style:solid}
-.caltr{position:absolute;left:2px;width:46%;z-index:1;cursor:pointer;white-space:nowrap;text-overflow:ellipsis;border-radius:6px;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--mut) 22%,transparent) 0 6px,transparent 6px 12px);border:1px dashed color-mix(in srgb,var(--mut) 60%,transparent);font-size:calc(11px*var(--fz,1));color:var(--mut);padding:0 6px;overflow:hidden;display:flex;align-items:center;box-sizing:border-box}
+.caltr{position:absolute;left:2px;width:46%;cursor:pointer;white-space:nowrap;text-overflow:ellipsis;border-radius:6px;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--mut) 22%,transparent) 0 6px,transparent 6px 12px);border:1px dashed color-mix(in srgb,var(--mut) 60%,transparent);font-size:calc(11px*var(--fz,1));color:var(--mut);padding:0 6px;overflow:hidden;display:flex;align-items:center;box-sizing:border-box}
 .caltr.late{border-color:var(--red);color:var(--red);background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--red) 20%,transparent) 0 6px,transparent 6px 12px)}
 .usrow{touch-action:pan-y;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;cursor:grab}
 .usrow .handle{margin:0 4px 0 0}
@@ -1619,7 +1619,7 @@ function calHtml(t) {
   {
     const open = filt.uso !== false && us.length;
     h += `<div class="card noprint uscard" style="padding:8px 10px"><div class="row" data-act="usotog"><b class="sp">📍 待排景點 ${us.length} <span class="mut" style="font-weight:400">・${us.length ? `${matchMedia("(pointer:coarse)").matches ? "長按" : "按住"}拖到下面的時間；` : ""}排錯的行程可以拖回這裡</span></b><span class="mut">${open ? "收起 ▲" : "展開 ▼"}</span></div>
-      ${open ? us.map((sp) => { const slot = freeSlot(t, d, sp); return `<div class="row usrow" data-sdrag="${sp.id}" style="padding:5px 0;border-top:1px solid var(--line)"><span class="handle" title="拖到下面的時間">⠿</span><span class="sp">${icatIcon({ 美食: "美食", 咖啡: "美食", 購物: "購物" }[sp.cat] || "景點")} ${esc(sp.name)}${cpTag(sp.name)} <span class="mut">${esc(sp.prio || "")}${sp.hours ? "・" + esc(sp.hours) : ""}</span></span>${slot ? `<button class="sm pri" data-act="usadd" data-id="${sp.id}" data-tm="${slot}">＋ ${slot}</button>` : '<span class="mut">今天排不進</span>'}</div>`; }).join("") : ""}</div>`;
+      ${open ? us.slice(0, filt.usall ? 1e9 : 5).map((sp) => { const slot = freeSlot(t, d, sp); return `<div class="row usrow" data-sdrag="${sp.id}" style="padding:5px 0;border-top:1px solid var(--line)"><span class="handle" title="拖到下面的時間">⠿</span><span class="sp">${icatIcon({ 美食: "美食", 咖啡: "美食", 購物: "購物" }[sp.cat] || "景點")} ${esc(sp.name)}${cpTag(sp.name)} <span class="mut">${esc(sp.prio || "")}${sp.hours ? "・" + esc(sp.hours) : ""}</span></span>${slot ? `<button class="sm pri" data-act="usadd" data-id="${sp.id}" data-tm="${slot}">＋ ${slot}</button>` : '<span class="mut">今天排不進</span>'}</div>`; }).join("") + (us.length > 5 ? `<div class="mut" data-act="usall" style="text-align:center;padding:6px 0 0;border-top:1px solid var(--line)">${filt.usall ? "只顯示前 5 個 ▲" : `再顯示 ${us.length - 5} 個 ▼`}</div>` : "") : ""}</div>`;
   }
   if (untimed.length) h += `<div class="card" style="padding:8px 10px"><div class="mut" style="margin-bottom:4px">未排時間（編輯時填時間就會排進下面）</div>${untimed.map((i) => `<div class="calu" data-edit="itin:${i.id}">${icatIcon(icatOf(i))} ${i._lbl ? `<b>${i._lbl}</b> ` : ""}${esc(i.title)}</div>`).join("")}</div>`;
   const nowM = d === today() ? new Date().getHours() * 60 + new Date().getMinutes() : null;
@@ -2223,6 +2223,7 @@ document.addEventListener("click", async (e) => {
     else if (act === "premap") return preMap(t);
     else if (act === "calprev" || act === "calnext") { const ds = calDays(t), k = ds.indexOf(filt.cd) + (act === "calnext" ? 1 : -1); if (ds[k]) filt.cd = ds[k]; calScroll.done = null; return render(); }
     else if (act === "route") { const sq = routeSeq(t, filt.cd), k = +el.dataset.k; return sq[k] && showRoute(sq[k - 1].o, sq[k].i); }
+    else if (act === "usall") { filt.usall = !filt.usall; return render(); }
     else if (act === "usotog") { filt.uso = filt.uso === false; return render(); }
     else if (act === "usadd") {
       const sp = t.spots.find((x) => x.id === id), tm = el.dataset.tm, e2 = hm(Math.min(toMin(tm) + 90, 23 * 60 + 59));
