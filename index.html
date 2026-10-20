@@ -946,6 +946,21 @@ const VEH = { SUBWAY: "🚇", METRO_RAIL: "🚇", BUS: "🚌", INTERCITY_BUS: "�
 const stepIcon = (x) => x.v != null ? VEH[x.v] || "🚃" : x.w ? "🚶" : "🚗";
 // 行事曆方塊上的一行摘要: 🚶5 → 🚇空港線 → 🚶3
 const stepsBrief = (steps) => steps.filter((x) => x.v != null || x.min >= 2).map((x) => x.v != null ? stepIcon(x) + (x.ln || x.vn) : stepIcon(x) + x.min).join("→");
+// 解析從 Google 地圖複製的路線文字: 「下午12:02 (星期二)—下午12:21 19 分 機場線 下午12:07 從福岡機場站出發 ¥260」
+function parseGRoute(txt) {
+  if (!/\d/.test(txt || "") || !/分|min/i.test(txt)) return null;
+  const lines = txt.split(/\n+/).map((x) => x.trim()).filter(Boolean);
+  const dm = txt.match(/(?:(\d+)\s*(?:小時|hr|h)\s*)?(\d+)\s*(?:分|min)/i);
+  const m = dm ? (+dm[1] || 0) * 60 + +dm[2] : 0;
+  const dep = txt.match(/(?:上午|下午|中午|凌晨|晚上)?\s*(\d{1,2}):(\d{2})\s*(?:AM|PM)?\s*從\s*(.+?)\s*出發/i);
+  let depTxt = "";
+  if (dep) { let h = +dep[1]; const pm = /下午|晚上/.test(dep[0]) || /PM/i.test(dep[0]); if (pm && h < 12) h += 12; depTxt = `${String(h).padStart(2, "0")}:${dep[2]} ${dep[3]}上車`; }
+  const ln = lines.filter((x) => x.length <= 20 && /線|バス|ライン|Line|號|号|快速|特急|新幹線/.test(x) && !/從|出發|—/.test(x));
+  if (!ln.length) { const bus = lines.filter((x) => /^[A-Z]?\d{1,4}[A-Z]?$/.test(x)); if (bus.length) ln.push("公車 " + bus.join("→")); }
+  const fare = (txt.match(/[¥￥]\s?[\d,]+/) || [""])[0].replace(/\s/g, "");
+  const how = [depTxt, ln.join("→"), fare].filter(Boolean).join(" ");
+  return how || m ? { m, how: how || txt.replace(/\s+/g, " ").slice(0, 60) } : null;
+}
 function showRoute(a, b) {
   const tv = travelMin(a, b), m = MODES.find((x) => x[0] === b.mode), tm = m ? m[1] : "transit";
   const url = mapsDirUrl(a, b, tm);
@@ -958,8 +973,13 @@ function showRoute(a, b) {
     <div class="mut">${m ? esc(m[0]) : "🚃 大眾運輸"}${tv ? `・${tv.est ? "約 " : ""}${tv.m} 分鐘（${tv.g ? "Google" : tv.est ? "依距離估算" : "自己填的"}）` : ""}</div>
     ${b.how ? `<div class="card" style="padding:8px 10px;margin:6px 0;white-space:pre-wrap">📝 ${esc(b.how)}</div>` : ""}
     ${rows || (b.how ? "" : `<div class="mut" style="margin:10px 0">${tv && tv.nt ? "Google 在日本等地不提供電車路線給 API（只有 Google 地圖 App 查得到），時間先用距離估算。按下面「Google 地圖導航」查好，填在下面就會記住。" : tv && tv.g ? "Google 沒有提供步驟。" : S.gkey ? "Google 路線查詢中或查不到，可以先用下面的 Google 地圖看。" : "在 ⚙︎ 填「Google 路線金鑰」，這裡就會列出搭哪條線、哪站上下車。"}</div>`)}
-    <div class="grid2"><div><label>交通時間（分，空白＝自動）</label><input type="number" min="0" id="rtMin" value="${+b.travel > 0 ? +b.travel : ""}"></div><div><label>怎麼去</label><input id="rtHow" value="${esc(b.how || "")}" placeholder="例：機場線 福岡空港→中洲川端"></div></div>
+    <div class="grid2"><div><label>交通時間（分，空白＝自動）</label><input type="number" min="0" id="rtMin" value="${+b.travel > 0 ? +b.travel : ""}"></div><div><label>怎麼去</label><input id="rtHow" value="${esc(b.how || "")}" placeholder="可直接貼上 Google 地圖的路線文字"></div></div>
+    <div class="mut">在 Google 地圖選取一條路線的文字（從時間到 ¥ 票價）→ 複製 → 貼到「怎麼去」，會自動填好時間。</div>
     <div class="row" style="margin-top:12px"><a class="btn" href="${url}" target="_blank" rel="noopener" style="text-decoration:none">Google 地圖導航 ↗</a><span class="sp"></span><button value="cancel">關閉</button><button type="button" class="pri" id="rtSave">儲存</button></div>`;
+  $("#rtHow").onpaste = (e) => {
+    const r = parseGRoute(e.clipboardData.getData("text")); if (!r) return;
+    e.preventDefault(); $("#rtHow").value = r.how; if (r.m) $("#rtMin").value = r.m;
+  };
   $("#rtSave").onclick = () => { const v = Math.round(+$("#rtMin").value || 0); b.travel = v > 0 ? v : ""; b.how = $("#rtHow").value.trim(); save(); dlg.close(); render(); };
   dlg.showModal();
 }
