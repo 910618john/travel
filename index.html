@@ -867,6 +867,7 @@ const geoQ = (x) => x.place && !isUrl(x.place) ? x.place : x.lat != null ? `${x.
 function travelMin(a, b) {
   if (+b.travel > 0) return { m: +b.travel, est: false };
   const gt = b.gtravel && b.gtravel.k === routeKey(a, b) ? b.gtravel : null;
+  if (gt && routeMode(b) === "transit" && gt.m > 15 && gt.steps && !gt.steps.some((x) => x.v != null)) gt.nt = true; // 舊的查詢結果也套用
   if (gt && !gt.nt) return gt.m != null ? { m: gt.m, est: false, g: true, steps: gt.steps || [] } : null;
   const nt = !!gt; // Google 只給步行(日本等地 API 沒有電車資料) → 用估算
   const d = distKm(a, b); if (d == null) return null;
