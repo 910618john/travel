@@ -1602,7 +1602,7 @@ function calHtml(t) {
   for (const v of calLayout(evs)) {
     const top = ((v.s - lo * 60) / 60) * HPX, ht = Math.max(26, ((v.e - v.s) / 60) * HPX - 3), w = 100 / v.cols, i = v.i, warn = hoursWarn(i, t) || (late.has(i.id) ? "⚠️ 交通來不及" : "");
     const m = MODES.find((x) => x[0] === i.mode);
-    h += `<div class="cale c-${icatOf(i)}${warn ? " warn" : ""}" data-edit="itin:${i.id}" ${v.label ? "" : `data-cdrag="${i.id}"`} style="top:${top}px;height:${ht}px;left:calc(${v.col * w}% + 2px);width:calc(${w}% - 4px)">${v.label ? "" : '<div class="calrs noprint" data-crs></div>'}
+    h += `<div class="cale c-${icatOf(i)}${warn ? " warn" : ""}" data-edit="itin:${i.id}" data-cdrag="${i.id}"${v.label ? ` data-clbl="${d === i.date ? "in" : "out"}"` : ""} style="top:${top}px;height:${ht}px;left:calc(${v.col * w}% + 2px);width:calc(${w}% - 4px)">${v.label ? "" : '<div class="calrs noprint" data-crs></div>'}
       ${ht < 44 ? '<div class="calone">' : ""}<span class="calt">${v.label ? `${v.label} ${esc(v.range)}` : `${esc(i.time)}${i.end && ht >= 44 ? "–" + esc(i.end) : ""}`}</span>
       <div class="calti">${icatIcon(icatOf(i))} ${esc(i.title)}${warn ? " ⚠️" : ""}${cpTag(i.title + " " + (i.place || ""), true)}</div>${ht < 44 ? "</div>" : ""}
       ${warn && ht >= 90 ? `<div class="calw">${warn}</div>` : ""}</div>`;
@@ -1618,9 +1618,9 @@ const calDrag = { on: false, until: 0 };
 document.addEventListener("pointerdown", (e) => {
   const el = e.target.closest && e.target.closest("[data-cdrag]"); if (!el || e.button > 0) return;
   const cal = el.closest(".cal"), lo = +cal.dataset.lo;
-  const st = { el, id: el.dataset.cdrag, resize: !!e.target.closest("[data-crs]"), y0: e.clientY, top0: parseFloat(el.style.top), h0: parseFloat(el.style.height) + 3, lo, maxY: parseFloat(cal.style.height), active: false, pid: e.pointerId };
+  const st = { el, id: el.dataset.cdrag, resize: !!e.target.closest("[data-crs]"), lbl: el.dataset.clbl, y0: e.clientY, top0: parseFloat(el.style.top), h0: parseFloat(el.style.height) + 3, lo, maxY: parseFloat(cal.style.height), active: false, pid: e.pointerId };
   const SNAP = HPX / 4;
-  const activate = () => { st.active = calDrag.on = true; el.classList.add("caldrag"); navigator.vibrate && navigator.vibrate(15); if (!st.resize) dayDrop.show(T()); };
+  const activate = () => { st.active = calDrag.on = true; el.classList.add("caldrag"); navigator.vibrate && navigator.vibrate(15); if (!st.resize && !st.lbl) dayDrop.show(T()); };
   if (e.pointerType === "mouse") st.armed = true; else st.timer = setTimeout(() => { st.armed = true; activate(); }, 350);
   const move = (ev) => {
     if (ev.pointerId !== st.pid) return;
@@ -1630,10 +1630,10 @@ document.addEventListener("pointerdown", (e) => {
       else if (!st.armed && Math.abs(dy) > 8) return end(); // 手指先移動 = 捲動頁面, 不拖
       if (!st.active) return;
     }
-    st.toDay = !st.resize && dayDrop.at(ev.clientX, ev.clientY);
+    st.toDay = !st.resize && !st.lbl && dayDrop.at(ev.clientX, ev.clientY);
     if (!dayDrop.over(ev.clientY)) { if (ev.clientY < 90) scrollBy(0, -10); else if (ev.clientY > innerHeight - 100) scrollBy(0, 10); }
     const ddy = ev.clientY - st.y0;
-    const uc = !st.resize && !st.toDay && $(".uscard");
+    const uc = !st.resize && !st.lbl && !st.toDay && $(".uscard");
     if (uc) { const r = uc.getBoundingClientRect(); st.toUns = ev.clientY >= r.top - 10 && ev.clientY <= r.bottom; uc.classList.toggle("dropok", st.toUns); el.style.opacity = st.toUns ? 0.4 : ""; }
     if (st.resize) { el.style.height = Math.max(SNAP, Math.round((st.h0 + ddy) / SNAP) * SNAP) - 3 + "px"; }
     else { el.style.top = Math.min(st.maxY - SNAP, Math.max(0, Math.round((st.top0 + ddy) / SNAP) * SNAP)) + "px"; }
@@ -1657,6 +1657,12 @@ document.addEventListener("pointerdown", (e) => {
       return toast(`「${it.title}」移到 ${st.toDay.slice(5)}（${dayName(st.toDay)}）${it.time || ""}`, "復原", () => { it.date = from; placeByTime(t, it); save(); render(); });
     }
     if (st.toUns) return unschedule(t, it);
+    if (st.lbl) { // 住宿等跨天: 拖入住 = 改入住時間, 拖退房 = 改退房時間(方塊底部)
+      const old = [it.time, it.end];
+      if (st.lbl === "in") it.time = hm(st.s); else it.end = hm(st.e);
+      save(); render();
+      return toast(`${st.lbl === "in" ? "入住" : "退房"}改成 ${st.lbl === "in" ? it.time : it.end}`, "復原", () => { [it.time, it.end] = old; save(); render(); });
+    }
     const hadEnd = !!it.end;
     it.time = hm(st.s);
     if (st.resize || hadEnd || st.e - st.s !== 60) it.end = hm(st.e);
