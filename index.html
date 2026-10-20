@@ -311,7 +311,7 @@ const icatOf = (i) => i.cat || (/住宿|飯店|酒店|旅館|民宿|入住|退�
 const icatIcon = (c) => (ICATS.find((x) => x[0] === c) || ICATS[0])[1];
 const MODES = [["🚶 步行", "walking"], ["🚃 電車/地鐵", "transit"], ["🚌 公車", "transit"], ["🚕 計程車", "driving"], ["🚗 開車", "driving"], ["✈️ 飛機", ""], ["⛴ 船", ""]];
 const SCHEMA = {
-  itin: [["date", "日期(住宿＝入住日)", "date"], ["endDate", "結束日期(住宿＝退房日，跨天才填)", "date"], ["time", "開始時間(住宿＝入住時間)", "time"], ["end", "結束時間(住宿＝退房時間；沒填算 1 小時)", "time"], ["title", "活動", "text", 1], ["cat", "類型", "select", 0, ICATS.map((x) => x[0])], ["place", "地點(可貼Google地圖連結)", "text"], ["hours", "營業時間(排進行程會自動檢查)", "hours"], ["mode", "從上一個行程怎麼過去", "select", 0, ["", ...MODES.map((m) => m[0])]], ["travel", "交通時間(分鐘，選填；沒填會依距離估)", "number"], ["note", "備註", "textarea"]],
+  itin: [["date", "日期(住宿＝入住日)", "date"], ["endDate", "結束日期(住宿＝退房日，跨天才填)", "date"], ["time", "開始時間(住宿＝入住時間)", "time"], ["end", "結束時間(住宿＝退房時間；沒填算 1 小時)", "time"], ["title", "活動", "text", 1], ["cat", "類型", "select", 0, ICATS.map((x) => x[0])], ["place", "地點(可貼Google地圖連結)", "text"], ["hours", "營業時間(排進行程會自動檢查)", "hours"], ["mode", "從上一個行程怎麼過去", "select", 0, ["", ...MODES.map((m) => m[0])]], ["travel", "交通時間(分鐘，選填；沒填會依距離估)", "number"], ["how", "怎麼去(選填，例：機場線 福岡空港→中洲川端)", "text"], ["note", "備註", "textarea"]],
   shop: [["name", "要買什麼", "text", 1], ["cat", "分類", "select", 0, SHOP_CATS], ["where", "在哪買(店名/地點)", "text"], ["price", "預估價格", "number"], ["cur", "幣別", "cur"], ["qty", "數量", "number"], ["who", "送誰／自用", "text"], ["file", "商品照片(給店員看)", "file"], ["note", "備註", "textarea"]],
   wallet: [["date", "日期", "date"], ["amt", "換到的外幣金額(負數=調整減少)", "number", 1], ["cur", "幣別", "cur"], ["cost", "花了多少本國幣(選填，用來算實際匯率)", "number"], ["note", "備註(在哪換)", "text"]],
   spots: [["name", "名稱", "text", 1], ["cat", "分類", "select", 0, SPOT_CATS], ["city", "城市/區域", "text"], ["addr", "地址或地圖連結", "text"], ["hours", "營業時間(排進行程會自動檢查)", "hours"], ["price", "門票/預算", "text"], ["prio", "優先", "select", 0, ["必去", "想去", "有空再去"]], ["note", "備註", "textarea"]],
@@ -866,11 +866,13 @@ const geoQ = (x) => x.place && !isUrl(x.place) ? x.place : x.lat != null ? `${x.
 // 交通時間: 有填用填的; 沒填但有座標, 依交通方式估(直線距離×1.3 繞路)
 function travelMin(a, b) {
   if (+b.travel > 0) return { m: +b.travel, est: false };
-  if (b.gtravel && b.gtravel.k === routeKey(a, b)) return b.gtravel.m != null ? { m: b.gtravel.m, est: false, g: true, steps: b.gtravel.steps || [] } : null;
+  const gt = b.gtravel && b.gtravel.k === routeKey(a, b) ? b.gtravel : null;
+  if (gt && !gt.nt) return gt.m != null ? { m: gt.m, est: false, g: true, steps: gt.steps || [] } : null;
+  const nt = !!gt; // Google 只給步行(日本等地 API 沒有電車資料) → 用估算
   const d = distKm(a, b); if (d == null) return null;
   const mode = (MODES.find((x) => x[0] === b.mode) || [, "transit"])[1];
   const km = d * 1.3, m = mode === "walking" ? (km / 4.5) * 60 : mode === "driving" ? 5 + (km / 25) * 60 : mode === "transit" ? (d < 1 ? (km / 4.5) * 60 : 10 + (km / 25) * 60) : null;
-  return m == null ? null : { m: Math.max(5, Math.round(m / 5) * 5), est: true };
+  return m == null ? null : { m: Math.max(5, Math.round(m / 5) * 5), est: true, nt };
 }
 // ===== Google 路線(Routes API): 有金鑰就用 Google 算真實交通時間, 結果存在行程上 =====
 const GMODE = { walking: "WALK", transit: "TRANSIT", driving: "DRIVE" };
@@ -908,6 +910,7 @@ async function gRoute(a, b) {
     if (!r.ok) throw new Error((j.error && j.error.message) || r.status);
     const route = (j.routes || [])[0];
     b.gtravel = { k, m: route ? Math.max(1, Math.round(parseInt(route.duration) / 60)) : null, km: route ? Math.round(route.distanceMeters / 100) / 10 : null, steps: route ? routeSteps(route) : [] };
+    if (mode === "TRANSIT" && b.gtravel.m > 15 && !b.gtravel.steps.some((x) => x.v != null)) b.gtravel.nt = true;
     save(); if (!$("#dlg").open && !calDrag.on) render();
   } catch (e) {
     gFail.add(k);
@@ -943,8 +946,11 @@ function showRoute(a, b) {
   const dlg = $("#dlg"); dlg.onclose = null;
   $("#dlgForm").innerHTML = `<h3>${esc(a.title)} → ${esc(b.title)}</h3>
     <div class="mut">${m ? esc(m[0]) : "🚃 大眾運輸"}${tv ? `・${tv.est ? "約 " : ""}${tv.m} 分鐘（${tv.g ? "Google" : tv.est ? "依距離估算" : "自己填的"}）` : ""}</div>
-    ${rows || `<div class="mut" style="margin:10px 0">${tv && tv.g ? "Google 沒有提供步驟。" : S.gkey ? "Google 路線查詢中或查不到，可以先用下面的 Google 地圖看。" : "在 ⚙︎ 填「Google 路線金鑰」，這裡就會列出搭哪條線、哪站上下車。"}</div>`}
-    <div class="row" style="margin-top:12px"><a class="btn pri" href="${url}" target="_blank" rel="noopener" style="text-decoration:none">Google 地圖導航 ↗</a><span class="sp"></span><button value="cancel">關閉</button></div>`;
+    ${b.how ? `<div class="card" style="padding:8px 10px;margin:6px 0;white-space:pre-wrap">📝 ${esc(b.how)}</div>` : ""}
+    ${rows || (b.how ? "" : `<div class="mut" style="margin:10px 0">${tv && tv.nt ? "Google 在日本等地不提供電車路線給 API（只有 Google 地圖 App 查得到），時間先用距離估算。按下面「Google 地圖導航」查好，填在下面就會記住。" : tv && tv.g ? "Google 沒有提供步驟。" : S.gkey ? "Google 路線查詢中或查不到，可以先用下面的 Google 地圖看。" : "在 ⚙︎ 填「Google 路線金鑰」，這裡就會列出搭哪條線、哪站上下車。"}</div>`)}
+    <div class="grid2"><div><label>交通時間（分，空白＝自動）</label><input type="number" min="0" id="rtMin" value="${+b.travel > 0 ? +b.travel : ""}"></div><div><label>怎麼去</label><input id="rtHow" value="${esc(b.how || "")}" placeholder="例：機場線 福岡空港→中洲川端"></div></div>
+    <div class="row" style="margin-top:12px"><a class="btn" href="${url}" target="_blank" rel="noopener" style="text-decoration:none">Google 地圖導航 ↗</a><span class="sp"></span><button value="cancel">關閉</button><button type="button" class="pri" id="rtSave">儲存</button></div>`;
+  $("#rtSave").onclick = () => { const v = Math.round(+$("#rtMin").value || 0); b.travel = v > 0 ? v : ""; b.how = $("#rtHow").value.trim(); save(); dlg.close(); render(); };
   dlg.showModal();
 }
 // 算某一天所有「沒手填、還沒算過或改過」的行程間交通
@@ -975,7 +981,7 @@ function connHtml(a, b) {
   const m = MODES.find((x) => x[0] === b.mode), d = distKm(a, b);
   const tm = m ? m[1] : "transit";
   const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(geoQ(a))}&destination=${encodeURIComponent(geoQ(b))}${tm ? "&travelmode=" + tm : ""}`;
-  const tv = travelMin(a, b), walk = tv ? `・${tv.est ? "約 " : ""}${tv.m} 分鐘${tv.g ? "（Google）" : ""}${tv.steps && tv.steps.length ? "・" + esc(stepsBrief(tv.steps)) : ""}` : "";
+  const tv = travelMin(a, b), walk = tv ? `・${tv.est ? "約 " : ""}${tv.m} 分鐘${tv.g ? "（Google）" : ""}${b.how ? "・" + esc(b.how) : tv.steps && tv.steps.length ? "・" + esc(stepsBrief(tv.steps)) : ""}` : "";
   const gk = tv && tv.g && b.gtravel.km;
   return `<div class="conn">↓ ${m ? esc(m[0]) : '<span style="opacity:.7">交通方式？</span>'}${gk ? `・${fmt(gk, 1)} km` : d != null ? `・直線 ${d < 1 ? Math.round(d * 1000) + " m" : fmt(d, 1) + " km"}` : ""}${walk}・<a href="${url}" target="_blank" rel="noopener">查路線 ↗</a></div>`;
 }
@@ -1602,7 +1608,7 @@ function calHtml(t) {
     const bad = a.e + tv.m > b.s, st0 = bad ? a.e : b.s - tv.m; // 來不及: 從上一個結束開始畫, 看得出超過多少
     if (bad) late.add(b.i.id);
     const icon = (MODES.find((x) => x[0] === b.i.mode) || ["🚃"])[0].split(" ")[0];
-    const brief = tv.steps && tv.steps.length ? stepsBrief(tv.steps) : "";
+    const brief = b.i.how || (tv.steps && tv.steps.length ? stepsBrief(tv.steps) : "");
     h += `<div class="caltr${bad ? " late" : ""}" data-act="route" data-k="${k}" title="${tv.g ? "Google 路線" : tv.est ? "依距離估算" : "自己填的"}・點開看怎麼去" style="top:${((Math.max(st0, lo * 60) - lo * 60) / 60) * HPX}px;height:${Math.max(14, (tv.m / 60) * HPX - 2)}px">${brief ? "" : icon + " "}${tv.est ? "約" : ""}${tv.m}分${bad ? " 來不及" : ""}${brief ? " " + esc(brief) : ""}</div>`;
   }
   for (const v of calLayout(evs)) {
