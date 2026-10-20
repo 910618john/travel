@@ -146,7 +146,7 @@ dialog form{overflow-x:hidden}
 #daydrop{position:fixed;left:0;right:0;top:62px;z-index:45;display:flex;gap:6px;align-items:center;overflow-x:auto;padding:10px 12px;background:color-mix(in srgb,var(--card) 92%,transparent);border-bottom:1px solid var(--line);box-shadow:0 4px 14px #0004;backdrop-filter:blur(6px)}
 .ddchip{white-space:nowrap;border:2px dashed var(--line);border-radius:18px;padding:7px 12px;font-size:calc(14px*var(--fz,1))}
 .ddchip.on{border-color:var(--acc);background:var(--acc);color:#fff;border-style:solid}
-.caltr{position:absolute;left:2px;width:46%;border-radius:6px;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--mut) 22%,transparent) 0 6px,transparent 6px 12px);border:1px dashed color-mix(in srgb,var(--mut) 60%,transparent);font-size:calc(11px*var(--fz,1));color:var(--mut);padding:0 6px;overflow:hidden;pointer-events:none;display:flex;align-items:center;box-sizing:border-box}
+.caltr{position:absolute;left:2px;width:46%;z-index:1;cursor:pointer;white-space:nowrap;text-overflow:ellipsis;border-radius:6px;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--mut) 22%,transparent) 0 6px,transparent 6px 12px);border:1px dashed color-mix(in srgb,var(--mut) 60%,transparent);font-size:calc(11px*var(--fz,1));color:var(--mut);padding:0 6px;overflow:hidden;display:flex;align-items:center;box-sizing:border-box}
 .caltr.late{border-color:var(--red);color:var(--red);background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--red) 20%,transparent) 0 6px,transparent 6px 12px)}
 .usrow{touch-action:pan-y;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;cursor:grab}
 .usrow .handle{margin:0 4px 0 0}
@@ -865,7 +865,7 @@ const geoQ = (x) => x.lat != null ? `${x.lat},${x.lon}` : x.place && !isUrl(x.pl
 // 交通時間: 有填用填的; 沒填但有座標, 依交通方式估(直線距離×1.3 繞路)
 function travelMin(a, b) {
   if (+b.travel > 0) return { m: +b.travel, est: false };
-  if (b.gtravel && b.gtravel.k === routeKey(a, b)) return b.gtravel.m != null ? { m: b.gtravel.m, est: false, g: true } : null;
+  if (b.gtravel && b.gtravel.k === routeKey(a, b)) return b.gtravel.m != null ? { m: b.gtravel.m, est: false, g: true, steps: b.gtravel.steps || [] } : null;
   const d = distKm(a, b); if (d == null) return null;
   const mode = (MODES.find((x) => x[0] === b.mode) || [, "transit"])[1];
   const km = d * 1.3, m = mode === "walking" ? (km / 4.5) * 60 : mode === "driving" ? 5 + (km / 25) * 60 : mode === "transit" ? (d < 1 ? (km / 4.5) * 60 : 10 + (km / 25) * 60) : null;
@@ -882,7 +882,7 @@ function routeDepart(a) {
   const sign = off < 0 ? "-" : "+", hh = String(Math.floor(Math.abs(off))).padStart(2, "0"), mm = String(Math.round((Math.abs(off) % 1) * 60)).padStart(2, "0");
   return `${a.date}T${tm}:00${sign}${hh}:${mm}`;
 }
-const routeKey = (a, b) => JSON.stringify([routeWp(a), routeWp(b), routeMode(b), routeDepart(a)]);
+const routeKey = (a, b) => JSON.stringify([2, routeWp(a), routeWp(b), routeMode(b), routeDepart(a)]); // 2: 有存搭乘步驟的版本
 const gBusy = new Set(), gFail = new Set(); let gErrShown = false; // gFail: 這次開啟期間失敗過的不再重試
 async function gRoute(a, b) {
   const mode = GMODE[routeMode(b)]; if (!mode || !S.gkey) return;
@@ -891,16 +891,49 @@ async function gRoute(a, b) {
   const dep = routeDepart(a);
   if (dep && new Date(dep) > new Date()) body.departureTime = dep; // 過去的時間 Google 不收, 就用現在
   try {
-    const r = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", { method: "POST", headers: { "Content-Type": "application/json", "X-Goog-Api-Key": S.gkey, "X-Goog-FieldMask": "routes.duration,routes.distanceMeters" }, body: JSON.stringify(body) });
+    const r = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", { method: "POST", headers: { "Content-Type": "application/json", "X-Goog-Api-Key": S.gkey, "X-Goog-FieldMask": "routes.duration,routes.distanceMeters,routes.legs.steps.travelMode,routes.legs.steps.staticDuration,routes.legs.steps.transitDetails" }, body: JSON.stringify(body) });
     const j = await r.json();
     if (!r.ok) throw new Error((j.error && j.error.message) || r.status);
     const route = (j.routes || [])[0];
-    b.gtravel = { k, m: route ? Math.max(1, Math.round(parseInt(route.duration) / 60)) : null, km: route ? Math.round(route.distanceMeters / 100) / 10 : null };
+    b.gtravel = { k, m: route ? Math.max(1, Math.round(parseInt(route.duration) / 60)) : null, km: route ? Math.round(route.distanceMeters / 100) / 10 : null, steps: route ? routeSteps(route) : [] };
     save(); if (!$("#dlg").open && !calDrag.on) render();
   } catch (e) {
     gFail.add(k);
     if (!gErrShown) { gErrShown = true; toast("Google 路線查詢失敗：" + String(e.message).slice(0, 60)); }
   } finally { gBusy.delete(k); }
+}
+// Google 回傳的步驟整理成: 步行(連續的合併) / 搭車(哪條線、哪站上下、幾站、幾點)
+function routeSteps(route) {
+  const out = [], sec = (x) => parseInt(x || "0") || 0;
+  for (const st of (route.legs || []).flatMap((l) => l.steps || [])) {
+    const td = st.transitDetails;
+    if (td) {
+      const ln = td.transitLine || {}, sd = td.stopDetails || {}, lv = td.localizedValues || {}, tm = (x) => x && x.time && x.time.text || "";
+      out.push({ v: (ln.vehicle || {}).type || "", vn: ((ln.vehicle || {}).name || {}).text || "", ln: ln.nameShort || ln.name || "", hs: td.headsign || "", f: (sd.departureStop || {}).name || "", to: (sd.arrivalStop || {}).name || "", n: td.stopCount || 0, dt: tm(lv.departureTime), at: tm(lv.arrivalTime), s: sec(st.staticDuration) });
+    } else {
+      const w = st.travelMode === "WALK", last = out[out.length - 1];
+      if (last && last.w === w && last.v == null) last.s += sec(st.staticDuration); else out.push({ w, s: sec(st.staticDuration) });
+    }
+  }
+  return out.map((x) => ({ ...x, min: Math.max(1, Math.round(x.s / 60)) }));
+}
+const VEH = { SUBWAY: "🚇", METRO_RAIL: "🚇", BUS: "🚌", INTERCITY_BUS: "🚌", TROLLEYBUS: "🚌", SHARE_TAXI: "🚐", HIGH_SPEED_TRAIN: "🚄", TRAM: "🚊", LIGHT_RAIL: "🚊", MONORAIL: "🚝", FERRY: "⛴️", CABLE_CAR: "🚡", GONDOLA_LIFT: "🚡", FUNICULAR: "🚞" };
+const stepIcon = (x) => x.v != null ? VEH[x.v] || "🚃" : x.w ? "🚶" : "🚗";
+// 行事曆方塊上的一行摘要: 🚶5 → 🚇空港線 → 🚶3
+const stepsBrief = (steps) => steps.filter((x) => x.v != null || x.min >= 2).map((x) => x.v != null ? stepIcon(x) + (x.ln || x.vn) : stepIcon(x) + x.min).join("→");
+function showRoute(a, b) {
+  const tv = travelMin(a, b), m = MODES.find((x) => x[0] === b.mode), tm = m ? m[1] : "transit";
+  const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(geoQ(a))}&destination=${encodeURIComponent(geoQ(b))}${tm ? "&travelmode=" + tm : ""}`;
+  const steps = tv && tv.steps || [];
+  const rows = steps.map((x) => x.v != null
+    ? `<div class="card" style="padding:8px 10px;margin:6px 0"><b>${stepIcon(x)} ${esc(x.ln || x.vn || "搭車")}</b>${x.hs ? ` <span class="mut">往 ${esc(x.hs)}</span>` : ""}<div>${esc(x.f)} ${x.dt ? `<span class="mut">${esc(x.dt)}</span>` : ""} → ${esc(x.to)} ${x.at ? `<span class="mut">${esc(x.at)}</span>` : ""}</div><div class="mut">${x.n ? x.n + " 站・" : ""}${x.min} 分鐘</div></div>`
+    : `<div class="mut" style="padding:2px 10px">${stepIcon(x)} ${x.w ? "步行" : "移動"} ${x.min} 分鐘</div>`).join("");
+  const dlg = $("#dlg"); dlg.onclose = null;
+  $("#dlgForm").innerHTML = `<h3>${esc(a.title)} → ${esc(b.title)}</h3>
+    <div class="mut">${m ? esc(m[0]) : "🚃 大眾運輸"}${tv ? `・${tv.est ? "約 " : ""}${tv.m} 分鐘（${tv.g ? "Google" : tv.est ? "依距離估算" : "自己填的"}）` : ""}</div>
+    ${rows || `<div class="mut" style="margin:10px 0">${tv && tv.g ? "Google 沒有提供步驟。" : S.gkey ? "Google 路線查詢中或查不到，可以先用下面的 Google 地圖看。" : "在 ⚙︎ 填「Google 路線金鑰」，這裡就會列出搭哪條線、哪站上下車。"}</div>`}
+    <div class="row" style="margin-top:12px"><a class="btn pri" href="${url}" target="_blank" rel="noopener" style="text-decoration:none">Google 地圖導航 ↗</a><span class="sp"></span><button value="cancel">關閉</button></div>`;
+  dlg.showModal();
 }
 // 算某一天所有「沒手填、還沒算過或改過」的行程間交通
 // 某天要算交通的順序: 一般行程 + 住宿入住(可當目的地也可當出發點) + 退房(只當出發點)
@@ -930,7 +963,7 @@ function connHtml(a, b) {
   const m = MODES.find((x) => x[0] === b.mode), d = distKm(a, b);
   const tm = m ? m[1] : "transit";
   const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(geoQ(a))}&destination=${encodeURIComponent(geoQ(b))}${tm ? "&travelmode=" + tm : ""}`;
-  const tv = travelMin(a, b), walk = tv ? `・${tv.est ? "約 " : ""}${tv.m} 分鐘${tv.g ? "（Google）" : ""}` : "";
+  const tv = travelMin(a, b), walk = tv ? `・${tv.est ? "約 " : ""}${tv.m} 分鐘${tv.g ? "（Google）" : ""}${tv.steps && tv.steps.length ? "・" + esc(stepsBrief(tv.steps)) : ""}` : "";
   return `<div class="conn">↓ ${m ? esc(m[0]) : '<span style="opacity:.7">交通方式？</span>'}${d != null ? `・直線 ${d < 1 ? Math.round(d * 1000) + " m" : fmt(d, 1) + " km"}` : ""}${walk}・<a href="${url}" target="_blank" rel="noopener">查路線 ↗</a></div>`;
 }
 
@@ -1550,13 +1583,14 @@ function calHtml(t) {
     const tv = travelMin(a.o, b.i);
     if (!tv) { // 算不出來也要讓人知道為什麼
       const busy = navigator.onLine && [a.o, b.i].some(needGeo), why = busy ? "定位中…" : [a.o, b.i].some((x) => x.lat == null) ? "找不到位置，點行程把地點改成完整地址或貼 Google 地圖連結" : "交通方式不支援估算，可以自己填交通時間";
-      h += `<div class="caltr" title="${why}" style="opacity:.6;top:${((Math.max(b.s - 20, lo * 60) - lo * 60) / 60) * HPX}px;height:14px">🚃 ${busy ? "定位中…" : "? 分"}</div>`;
+      h += `<div class="caltr" data-act="route" data-k="${k}" title="${why}" style="opacity:.6;top:${((Math.max(b.s - 20, lo * 60) - lo * 60) / 60) * HPX}px;height:14px">🚃 ${busy ? "定位中…" : "? 分"}</div>`;
       continue;
     }
     const bad = a.e + tv.m > b.s, st0 = bad ? a.e : b.s - tv.m; // 來不及: 從上一個結束開始畫, 看得出超過多少
     if (bad) late.add(b.i.id);
     const icon = (MODES.find((x) => x[0] === b.i.mode) || ["🚃"])[0].split(" ")[0];
-    h += `<div class="caltr${bad ? " late" : ""}" title="${tv.g ? "Google 路線" : tv.est ? "依距離估算" : "自己填的"}" style="top:${((Math.max(st0, lo * 60) - lo * 60) / 60) * HPX}px;height:${Math.max(14, (tv.m / 60) * HPX - 2)}px">${icon} ${tv.est ? "約" : ""}${tv.m}分${bad ? " 來不及" : ""}</div>`;
+    const brief = tv.steps && tv.steps.length ? stepsBrief(tv.steps) : "";
+    h += `<div class="caltr${bad ? " late" : ""}" data-act="route" data-k="${k}" title="${tv.g ? "Google 路線" : tv.est ? "依距離估算" : "自己填的"}・點開看怎麼去" style="top:${((Math.max(st0, lo * 60) - lo * 60) / 60) * HPX}px;height:${Math.max(14, (tv.m / 60) * HPX - 2)}px">${brief ? "" : icon + " "}${tv.est ? "約" : ""}${tv.m}分${bad ? " 來不及" : ""}${brief ? " " + esc(brief) : ""}</div>`;
   }
   for (const v of calLayout(evs)) {
     const top = ((v.s - lo * 60) / 60) * HPX, ht = Math.max(26, ((v.e - v.s) / 60) * HPX - 3), w = 100 / v.cols, i = v.i, warn = hoursWarn(i, t) || (late.has(i.id) ? "⚠️ 交通來不及" : "");
@@ -2133,6 +2167,7 @@ document.addEventListener("click", async (e) => {
     else if (act === "geoall") return geoAll(t);
     else if (act === "premap") return preMap(t);
     else if (act === "calprev" || act === "calnext") { const ds = calDays(t), k = ds.indexOf(filt.cd) + (act === "calnext" ? 1 : -1); if (ds[k]) filt.cd = ds[k]; calScroll.done = null; return render(); }
+    else if (act === "route") { const sq = routeSeq(t, filt.cd), k = +el.dataset.k; return sq[k] && showRoute(sq[k - 1].o, sq[k].i); }
     else if (act === "usotog") { filt.uso = filt.uso === false; return render(); }
     else if (act === "usadd") {
       const sp = t.spots.find((x) => x.id === id), tm = el.dataset.tm, e2 = hm(Math.min(toMin(tm) + 90, 23 * 60 + 59));
