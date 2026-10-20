@@ -511,6 +511,26 @@ async function geoAll(t) {
   save(); render();
   alert(`定位完成：${ok}/${list.length}` + (ok < list.length ? "\n找不到的可以編輯地點，改成更完整的地址或貼含座標的 Google 地圖連結" : ""));
 }
+// 行事曆那天還沒定位的行程, 背景自動定位(估交通時間要座標); 一次一個, 照 Nominatim 每秒 1 次
+let geoBusy = false;
+async function autoGeoDay(t, d) {
+  if (geoBusy || !navigator.onLine) return;
+  const list = routeSeq(t, d).map((v) => v.i).filter(needGeo); if (list.length < 1 || routeSeq(t, d).length < 2) return;
+  geoBusy = true; let changed = false;
+  try {
+    for (const x of list) {
+      let c = coordFromLink(x.place);
+      for (const q of [isUrl(x.place) ? "" : x.place, x.title].filter(Boolean)) {
+        if (c) break;
+        try { c = await geocode(q, t); } catch (e) { }
+        await new Promise((r) => setTimeout(r, 1100));
+      }
+      if (c) { x.lat = c[0]; x.lon = c[1]; } else x.geoFail = true;
+      changed = true;
+    }
+  } finally { geoBusy = false; }
+  if (changed) { save(); render(); }
+}
 async function initMap(t) {
   const el = $("#map"); if (!el) return;
   let L; try { L = await loadLeaflet(); } catch (e) { el.innerHTML = '<div class="empty">地圖載入失敗（需要網路）</div>'; return; }
@@ -2039,7 +2059,7 @@ function render() {
   if (S.tab === "fx") toolBind(t);
   if (S.tab === "itin" && filt.iv === "地圖") initMap(t);
   if ((S.tab === "tickets" && filt.tk === "優惠券") || (S.tab === "exp" && filt.ex === "收據整理") || (S.tab === "itin" && filt.iv === "日記") || (S.tab === "pack" && (filt.pk || "必買") === "必買")) fillThumbs();
-  if (S.tab === "itin" && (filt.iv || "行事曆") === "行事曆") { calScroll(); gRouteDay(t, filt.cd); }
+  if (S.tab === "itin" && (filt.iv || "行事曆") === "行事曆") { calScroll(); gRouteDay(t, filt.cd); autoGeoDay(t, filt.cd); }
   if (S.tab === "itin" && filt.iv === "清單" && S.gkey) [...new Set(t.itin.map((i) => i.date))].forEach((d) => d && gRouteDay(t, d));
   if ($("#ocrIn")) $("#ocrIn").onchange = (e) => { const f = e.target.files[0]; if (f) doOcr(f).catch((err) => alert("失敗：" + err.message)); };
   loadWx(t);
