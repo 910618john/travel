@@ -863,10 +863,28 @@ async function gRoute(a, b) {
   } finally { gBusy.delete(k); }
 }
 // 算某一天所有「沒手填、還沒算過或改過」的行程間交通
+// 某天要算交通的順序: 一般行程 + 住宿入住(可當目的地也可當出發點) + 退房(只當出發點)
+// o = 當出發點時用的資料(住宿要換成當天日期與時間), dest = 能不能當目的地
+function routeSeq(t, d) {
+  const r = [];
+  for (const i of t.itin) {
+    if (!isMulti(i)) {
+      if (i.date !== d || !i.time) continue;
+      const s = toMin(i.time); let e = toMin(i.end); if (e == null || e <= s) e = e != null && e < s ? e + 1440 : s + 60;
+      r.push({ i, o: i, s, e, dest: true });
+    } else if (i.date === d && i.time) {
+      const s = toMin(i.time); r.push({ i, o: { ...i, end: i.time }, s, e: s, dest: true });
+    } else if (i.endDate === d) {
+      const e = toMin(i.end || (icatOf(i) === "住宿" ? "11:00" : "")); if (e == null) continue;
+      r.push({ i, o: { ...i, date: d, time: hm(e), end: hm(e) }, s: e, e, dest: false });
+    }
+  }
+  return r.sort((a, b) => a.s - b.s);
+}
 function gRouteDay(t, d) {
   if (!S.gkey) return;
-  const seq = t.itin.filter((i) => i.date === d && i.time && !isMulti(i)).sort((a, b) => toMin(a.time) - toMin(b.time));
-  for (let k = 1; k < seq.length; k++) { const a = seq[k - 1], b = seq[k]; if (!(+b.travel > 0) && !(b.gtravel && b.gtravel.k === routeKey(a, b))) gRoute(a, b); }
+  const seq = routeSeq(t, d);
+  for (let k = 1; k < seq.length; k++) { const a = seq[k - 1].o, b = seq[k].i; if (seq[k].dest && !(+b.travel > 0) && !(b.gtravel && b.gtravel.k === routeKey(a, b))) gRoute(a, b); }
 }
 function connHtml(a, b) {
   const m = MODES.find((x) => x[0] === b.mode), d = distKm(a, b);
@@ -1486,9 +1504,10 @@ function calHtml(t) {
   h += `<div class="cal" style="height:${(hi - lo) * HPX}px" data-act="calnew" data-lo="${lo}">`;
   for (let k = lo; k <= hi; k++) h += `<div class="calh" style="top:${(k - lo) * HPX}px"><span>${String(k % 24).padStart(2, "0")}:00</span></div>`;
   // 交通時段: 畫在每個行程前面; 上一個結束+交通 > 這個開始 → 來不及
-  const seq = evs.filter((v) => !v.label).sort((a, b) => a.s - b.s), late = new Set();
+  const sel = new Set(shown.map((i) => i.id)), seq = routeSeq(t, d).filter((v) => sel.has(v.i.id)), late = new Set();
   for (let k = 1; k < seq.length; k++) {
-    const a = seq[k - 1], b = seq[k], tv = travelMin(a.i, b.i); if (!tv) continue;
+    const a = seq[k - 1], b = seq[k]; if (!b.dest) continue;
+    const tv = travelMin(a.o, b.i); if (!tv) continue;
     const bad = a.e + tv.m > b.s, st0 = bad ? a.e : b.s - tv.m; // 來不及: 從上一個結束開始畫, 看得出超過多少
     if (bad) late.add(b.i.id);
     const icon = (MODES.find((x) => x[0] === b.i.mode) || ["🚃"])[0].split(" ")[0];
