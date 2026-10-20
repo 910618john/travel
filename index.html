@@ -863,6 +863,15 @@ function distKm(a, b) {
 }
 // 有打地址就用地址(自動定位可能只到區), 貼連結的才用座標
 const geoQ = (x) => x.place && !isUrl(x.place) ? x.place : x.lat != null ? `${x.lat},${x.lon}` : x.title;
+// Google 地圖路線連結; 有日期時間就帶「出發時間」(上一個行程結束), 打開就是那個時段的班次
+function mapsDirUrl(a, b, tm) {
+  const q = `saddr=${encodeURIComponent(geoQ(a))}&daddr=${encodeURIComponent(geoQ(b))}&dirflg=${{ walking: "w", driving: "d" }[tm] || "r"}`;
+  const t0 = a.end || a.time;
+  if (!a.date || !t0) return `https://www.google.com/maps?${q}`;
+  const [y, mo, d] = a.date.split("-"), [hh, mm] = t0.split(":").map(Number);
+  const time = `${(hh % 12) || 12}:${String(mm).padStart(2, "0")}${hh < 12 ? "am" : "pm"}`;
+  return `https://www.google.com/maps?${q}&ttype=dep&date=${+mo}/${+d}/${y.slice(2)}&time=${encodeURIComponent(time)}`;
+}
 // 交通時間: 有填用填的; 沒填但有座標, 依交通方式估(直線距離×1.3 繞路)
 function travelMin(a, b) {
   if (+b.travel > 0) return { m: +b.travel, est: false };
@@ -939,7 +948,7 @@ const stepIcon = (x) => x.v != null ? VEH[x.v] || "🚃" : x.w ? "🚶" : "🚗"
 const stepsBrief = (steps) => steps.filter((x) => x.v != null || x.min >= 2).map((x) => x.v != null ? stepIcon(x) + (x.ln || x.vn) : stepIcon(x) + x.min).join("→");
 function showRoute(a, b) {
   const tv = travelMin(a, b), m = MODES.find((x) => x[0] === b.mode), tm = m ? m[1] : "transit";
-  const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(geoQ(a))}&destination=${encodeURIComponent(geoQ(b))}${tm ? "&travelmode=" + tm : ""}`;
+  const url = mapsDirUrl(a, b, tm);
   const steps = tv && tv.steps || [];
   const rows = steps.map((x) => x.v != null
     ? `<div class="card" style="padding:8px 10px;margin:6px 0"><b>${stepIcon(x)} ${esc(x.ln || x.vn || "搭車")}</b>${x.hs ? ` <span class="mut">往 ${esc(x.hs)}</span>` : ""}<div>${esc(x.f)} ${x.dt ? `<span class="mut">${esc(x.dt)}</span>` : ""} → ${esc(x.to)} ${x.at ? `<span class="mut">${esc(x.at)}</span>` : ""}</div><div class="mut">${x.n ? x.n + " 站・" : ""}${x.min} 分鐘</div></div>`
@@ -981,7 +990,7 @@ function gRouteDay(t, d) {
 function connHtml(a, b) {
   const m = MODES.find((x) => x[0] === b.mode), d = distKm(a, b);
   const tm = m ? m[1] : "transit";
-  const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(geoQ(a))}&destination=${encodeURIComponent(geoQ(b))}${tm ? "&travelmode=" + tm : ""}`;
+  const url = mapsDirUrl(a, b, tm);
   const tv = travelMin(a, b), walk = tv ? `・${tv.est ? "約 " : ""}${tv.m} 分鐘${tv.g ? "（Google）" : ""}${b.how ? "・" + esc(b.how) : tv.steps && tv.steps.length ? "・" + esc(stepsBrief(tv.steps)) : ""}` : "";
   const gk = tv && tv.g && b.gtravel.km;
   return `<div class="conn">↓ ${m ? esc(m[0]) : '<span style="opacity:.7">交通方式？</span>'}${gk ? `・${fmt(gk, 1)} km` : d != null ? `・直線 ${d < 1 ? Math.round(d * 1000) + " m" : fmt(d, 1) + " km"}` : ""}${walk}・<a href="${url}" target="_blank" rel="noopener">查路線 ↗</a></div>`;
