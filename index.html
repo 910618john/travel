@@ -861,7 +861,8 @@ function distKm(a, b) {
   const h = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLo / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
 }
-const geoQ = (x) => x.lat != null ? `${x.lat},${x.lon}` : x.place && !isUrl(x.place) ? x.place : x.title;
+// 有打地址就用地址(自動定位可能只到區), 貼連結的才用座標
+const geoQ = (x) => x.place && !isUrl(x.place) ? x.place : x.lat != null ? `${x.lat},${x.lon}` : x.title;
 // 交通時間: 有填用填的; 沒填但有座標, 依交通方式估(直線距離×1.3 繞路)
 function travelMin(a, b) {
   if (+b.travel > 0) return { m: +b.travel, est: false };
@@ -873,7 +874,7 @@ function travelMin(a, b) {
 }
 // ===== Google 路線(Routes API): 有金鑰就用 Google 算真實交通時間, 結果存在行程上 =====
 const GMODE = { walking: "WALK", transit: "TRANSIT", driving: "DRIVE" };
-const routeWp = (x) => x.lat != null ? { location: { latLng: { latitude: x.lat, longitude: x.lon } } } : { address: x.place && !isUrl(x.place) ? x.place : x.title };
+const routeWp = (x) => x.place && !isUrl(x.place) ? { address: x.place } : x.lat != null ? { location: { latLng: { latitude: x.lat, longitude: x.lon } } } : { address: x.title };
 const routeMode = (b) => (MODES.find((x) => x[0] === b.mode) || [, "transit"])[1];
 // 出發時間 = 上一個行程結束(當地時區); 換了地點/方式/時間就重算
 function routeDepart(a) {
@@ -882,14 +883,19 @@ function routeDepart(a) {
   const sign = off < 0 ? "-" : "+", hh = String(Math.floor(Math.abs(off))).padStart(2, "0"), mm = String(Math.round((Math.abs(off) % 1) * 60)).padStart(2, "0");
   return `${a.date}T${tm}:00${sign}${hh}:${mm}`;
 }
-const routeKey = (a, b) => JSON.stringify([2, routeWp(a), routeWp(b), routeMode(b), routeDepart(a)]); // 2: 有存搭乘步驟的版本
+const routeKey = (a, b) => JSON.stringify([3, routeWp(a), routeWp(b), routeMode(b), routeDepart(a)]); // 2: 有存搭乘步驟的版本
 const gBusy = new Set(), gFail = new Set(); let gErrShown = false; // gFail: 這次開啟期間失敗過的不再重試
 async function gRoute(a, b) {
   const mode = GMODE[routeMode(b)]; if (!mode || !S.gkey) return;
   const k = routeKey(a, b); if (gBusy.has(k) || gFail.has(k)) return; gBusy.add(k);
   const body = { origin: routeWp(a), destination: routeWp(b), travelMode: mode, languageCode: "zh-TW", units: "METRIC" };
   const dep = routeDepart(a);
-  if (dep && new Date(dep) > new Date()) body.departureTime = dep; // 過去的時間 Google 不收, 就用現在
+  if (dep && new Date(dep) > new Date()) {
+    // 太久以後 Google 還沒有時刻表(會只給步行), 改查最近一個「同星期幾同時間」
+    let d = new Date(dep); const wk = 7 * 864e5;
+    if (d - Date.now() > 30 * 864e5) d = new Date(d - Math.ceil((d - Date.now() - wk) / wk) * wk);
+    body.departureTime = d.toISOString();
+  } // 過去的時間 Google 不收, 就用現在
   try {
     const r = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", { method: "POST", headers: { "Content-Type": "application/json", "X-Goog-Api-Key": S.gkey, "X-Goog-FieldMask": "routes.duration,routes.distanceMeters,routes.legs.steps.travelMode,routes.legs.steps.staticDuration,routes.legs.steps.transitDetails" }, body: JSON.stringify(body) });
     const j = await r.json();
@@ -964,7 +970,8 @@ function connHtml(a, b) {
   const tm = m ? m[1] : "transit";
   const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(geoQ(a))}&destination=${encodeURIComponent(geoQ(b))}${tm ? "&travelmode=" + tm : ""}`;
   const tv = travelMin(a, b), walk = tv ? `・${tv.est ? "約 " : ""}${tv.m} 分鐘${tv.g ? "（Google）" : ""}${tv.steps && tv.steps.length ? "・" + esc(stepsBrief(tv.steps)) : ""}` : "";
-  return `<div class="conn">↓ ${m ? esc(m[0]) : '<span style="opacity:.7">交通方式？</span>'}${d != null ? `・直線 ${d < 1 ? Math.round(d * 1000) + " m" : fmt(d, 1) + " km"}` : ""}${walk}・<a href="${url}" target="_blank" rel="noopener">查路線 ↗</a></div>`;
+  const gk = tv && tv.g && b.gtravel.km;
+  return `<div class="conn">↓ ${m ? esc(m[0]) : '<span style="opacity:.7">交通方式？</span>'}${gk ? `・${fmt(gk, 1)} km` : d != null ? `・直線 ${d < 1 ? Math.round(d * 1000) + " m" : fmt(d, 1) + " km"}` : ""}${walk}・<a href="${url}" target="_blank" rel="noopener">查路線 ↗</a></div>`;
 }
 
 // ===== 出發前 / 入境準備(規定常變, 以官方為準) =====
@@ -1853,7 +1860,7 @@ const V = {
       const n = startD && d !== "未定" ? Math.round((new Date(d + "T00:00") - startD) / 864e5) + 1 : null;
       return `<div class="daybar" data-day="${d}">${n ? `Day ${n}・` : ""}${d} ${dayName(d) ? "(" + dayName(d) + ")" : ""} <span class="wx">${wxTxt(wxOf(t, d))}</span></div><div class="dayitems">` +
         (() => { const arr = by[d].sort(byOrd), wh = d !== "未定" && wakeHotel(t, d), sh = d !== "未定" && sleepHotel(t, d);
-          return (wh ? hotelConn(wh, arr[0], "from") : "") + arr.map((i, n) => (n ? connHtml(arr[n - 1], i) : "") + itinCard(i, arr.length > 1)).join("") + "</div>" + (sh ? hotelConn(sh, arr[arr.length - 1], "to") : ""); })();
+          return (wh && wh._iid !== arr[0].id ? hotelConn(wh, arr[0], "from") : "") + arr.map((i, n) => (n ? connHtml(arr[n - 1], i) : "") + itinCard(i, arr.length > 1)).join("") + "</div>" + (sh && sh._iid !== arr[arr.length - 1].id ? hotelConn(sh, arr[arr.length - 1], "to") : ""); })();
     }).join("");
   },
   spots(t) {
