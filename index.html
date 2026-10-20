@@ -2239,8 +2239,6 @@ function openSettings() {
     <label>目的地城市（天氣、時鐘、地圖、緊急電話用）</label><input name="city" value="${esc(t.loc ? t.loc.q : "")}" placeholder="例：東京、首爾、Bangkok、Paris">
     ${t.loc ? `<div class="mut">目前：${esc(t.loc.name)}，${esc(t.loc.country)}（${esc(t.loc.tz)}）</div>` : ""}
     <div class="grid2"><div><label>當地幣別</label><select name="cur">${curOpt(t.cur)}</select></div><div><label>本國幣別</label><select name="home">${curOpt(t.home)}</select></div></div>
-    <label>Google 路線金鑰（選填，填了交通時間改用 Google 計算）</label><input name="gkey" value="${esc(S.gkey || "")}" placeholder="AIza…" autocomplete="off">
-    <div class="mut">只存在這台裝置。申請方式見說明；沒填就用距離粗估。</div>
     <label>手動匯率（1 當地幣 = ? 本國幣，0 = 自動）</label><input type="number" step="any" name="manualRate" value="${t.manualRate || 0}">
     <label>預算（本國幣，0 = 不設）</label><input type="number" step="any" name="budget" value="${t.budget || 0}">
     <label>同行者（逗號分隔，第一位是自己）</label><input name="people" value="${esc(t.people.join(","))}">
@@ -2250,6 +2248,9 @@ function openSettings() {
     <h3 style="margin-top:16px">資料</h3>
     <div class="mut">資料存在這台裝置的瀏覽器。換手機或備份請用匯出/匯入（票券檔案不含在 JSON 內）。</div>
     <div class="row" style="margin-top:6px"><button value="export" formnovalidate>匯出備份</button><label class="btn" style="margin:0;color:var(--fg)">匯入備份<input type="file" accept=".json" id="impFile" hidden></label></div>
+    <h3 style="margin-top:16px">Google 路線（這台裝置）</h3>
+    <label>金鑰（選填，填了交通時間改用 Google 計算）</label><input name="gkey" value="${esc(S.gkey || "")}" placeholder="AIza…" autocomplete="off">
+    <div class="mut">沒填就用距離粗估。</div>
     <h3 style="margin-top:16px">顯示（這台裝置）</h3>
     <div class="grid2" style="grid-template-columns:1fr 1fr 1fr"><div><label>主題</label><select name="theme">${[["", "自動"], ["light", "淺色"], ["dark", "深色"]].map(([v, n]) => `<option value="${v}" ${(S.theme || "") === v ? "selected" : ""}>${n}</option>`).join("")}</select></div>
       <div><label>字體</label><select name="fz">${[["1", "標準"], ["1.15", "大"], ["1.3", "特大"]].map(([v, n]) => `<option value="${v}" ${String(S.fz || 1) === v ? "selected" : ""}>${n}</option>`).join("")}</select></div>
