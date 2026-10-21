@@ -443,13 +443,13 @@ const wxBusy = {};
 const wxKey = (t) => t.loc && t.loc.lat + "," + t.loc.lon;
 function loadWx(t) {
   const k = wxKey(t);
-  if (!k || wxBusy[k] || (S.wx[k] && Date.now() - S.wx[k].ts < 3 * 3600e3)) return;
+  if (!k || wxBusy[k] || (S.wx[k] && S.wx[k].v === 2 && Date.now() - S.wx[k].ts < 3 * 3600e3)) return;
   wxBusy[k] = 1;
-  fetch(`https://api.open-meteo.com/v1/forecast?latitude=${t.loc.lat}&longitude=${t.loc.lon}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=16`)
+  fetch(`https://api.open-meteo.com/v1/forecast?latitude=${t.loc.lat}&longitude=${t.loc.lon}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_gusts_10m_max,precipitation_sum,snowfall_sum&timezone=auto&forecast_days=16`)
     .then((r) => r.json()).then((j) => {
       const d = {};
-      j.daily.time.forEach((x, i) => (d[x] = [j.daily.weather_code[i], Math.round(j.daily.temperature_2m_max[i]), Math.round(j.daily.temperature_2m_min[i]), j.daily.precipitation_probability_max[i]]));
-      S.wx[k] = { ts: Date.now(), d }; saveLocal(); if (!$("#dlg").open) render();
+      j.daily.time.forEach((x, i) => (d[x] = [j.daily.weather_code[i], Math.round(j.daily.temperature_2m_max[i]), Math.round(j.daily.temperature_2m_min[i]), j.daily.precipitation_probability_max[i], j.daily.wind_gusts_10m_max?.[i], j.daily.precipitation_sum?.[i], j.daily.snowfall_sum?.[i]]));
+      S.wx[k] = { ts: Date.now(), d, v: 2 }; saveLocal(); if (!$("#dlg").open) render();
     }).catch(() => {}).finally(() => delete wxBusy[k]);
 }
 const wxOf = (t, date) => { const c = S.wx[wxKey(t)]; return c && c.d[date]; };
@@ -471,7 +471,9 @@ function clockHtml(t) {
     <div class="sp"><div class="mut">台灣</div><div class="big">${clk("Asia/Taipei")}</div></div>
     <div><div class="mut">時差</div><b>${d === 0 ? "相同" : (d > 0 ? "+" : "") + d + " 小時"}</b></div></div>`;
 }
-setInterval(() => { const el = $("#clock"); if (el && !$("#dlg").open) el.innerHTML = clockHtml(T()); const ns = $("#nextStop"); if (ns && !$("#dlg").open) ns.outerHTML = nextStopHtml(T()) || "<div></div>"; }, 30000);
+setInterval(() => { const el = $("#clock"); if (el && !$("#dlg").open) el.innerHTML = clockHtml(T()); const ns = $("#nextStop"); if (ns && !$("#dlg").open) ns.outerHTML = nextStopHtml(T()) || "<div></div>";
+  const t = T(), live = t.start && t.end && tripNow(t).d >= daysBefore(t.start, 3) && tripNow(t).d <= t.end;
+  if (live) { closeCheck(t); if (ccOf(t) === "JP") loadEq(); } }, 30000);
 
 // ===== 地圖(Leaflet + OpenStreetMap) =====
 let leafletP;
@@ -1431,7 +1433,7 @@ function diaryHtml(t) {
   const days = diaryDays(t);
   if (!days.length) return `<div class="empty">到 ⚙︎ 設定旅程日期，就能每天寫日記</div>`;
   const startD = t.start ? new Date(t.start + "T00:00") : null;
-  return `<div class="row noprint" style="margin-bottom:8px"><span class="sp mut">每天寫幾句、放幾張照片，回來就是遊記</span><button class="sm" data-act="album">🖼 相簿</button><label class="btn sm" style="margin:0">📷 照片自動分日<input type="file" accept="image/*" multiple id="diaryAuto" hidden></label><button class="sm" data-act="print">列印／存 PDF</button></div><div class="mut" id="diaryAutoSt"></div>
+  return `<div class="row noprint" style="margin-bottom:8px"><span class="sp mut">每天寫幾句、放幾張照片，回來就是遊記</span><button class="sm" data-act="album">🖼 相簿</button><button class="sm" data-act="video">🎬 影片</button><label class="btn sm" style="margin:0">📷 照片自動分日<input type="file" accept="image/*" multiple id="diaryAuto" hidden></label><button class="sm" data-act="print">列印／存 PDF</button></div><div class="mut" id="diaryAutoSt"></div>
     <h2 class="printonly" style="display:none">${esc(t.name)} 旅行日記</h2>` +
     days.map((d) => {
       const e = t.diary.find((x) => x.date === d), n = startD ? Math.round((new Date(d + "T00:00") - startD) / 864e5) + 1 : null;
@@ -1614,7 +1616,7 @@ function calHtml(t) {
       <div class="chips" style="margin:0;flex:1">${days.map((x) => `<button class="${x === d ? "on" : ""}" data-f="cd" data-v="${x}">${x.slice(5)}(${dayName(x)})</button>`).join("")}</div>
       <button class="sm" data-act="calnext" ${idx < days.length - 1 ? "" : "disabled"}>›</button></div>
     <div class="row" style="margin:4px 0 8px"><h3 class="sp" style="margin:0">${n > 0 ? `Day ${n}・` : ""}${d} (${dayName(d)})</h3><span class="wx">${wxTxt(wxOf(t, d))}</span><button class="sm noprint" data-act="optday" title="依距離重排今天的順序與時間">🔀 排順序</button></div>
-    ${wxOf(t, d) ? `<div class="mut" style="margin:-4px 0 8px">${outfit(wxOf(t, d))}</div>` : ""}${holHtml(t, d)}${feeHtml(t, d)}${rainHtml(t, d)}
+    ${wxOf(t, d) ? `<div class="mut" style="margin:-4px 0 8px">${outfit(wxOf(t, d))}</div>` : ""}${wxAlertHtml(t, d)}${holHtml(t, d)}${feeHtml(t, d)}${rainHtml(t, d)}
     ${present.length > 1 ? `<div class="chips noprint"><button class="${!filt.ic ? "on" : ""}" data-f="ic" data-v="">全部</button>${present.map(([c, ic]) => `<button class="${filt.ic === c ? "on" : ""}" data-f="ic" data-v="${c}"><span class="cdot c-${c}"></span>${ic} ${c}</button>`).join("")}</div>` : ""}`;
   for (const i of banners) { const k = spanDates(i.date, d).length, N = nights(i);
     h += `<div class="calban c-${icatOf(i)}" data-edit="itin:${i.id}">${icatIcon(icatOf(i))} <b>${esc(i.title)}</b><span class="mut">・${icatOf(i) === "住宿" ? `第 ${k} 晚／共 ${N} 晚` : `第 ${k} 天／共 ${N + 1} 天`}・${i.date.slice(5)}～${i.endDate.slice(5)}</span></div>`; }
@@ -1834,6 +1836,7 @@ function calScroll() {
 }
 
 // ===== 今日模式: 下一站、幾分後出發、一鍵導航(用旅程當地時間) =====
+const daysBefore = (d, n) => new Date(Date.parse(d + "T12:00") - n * 864e5).toLocaleDateString("sv");
 const tripNow = (t) => {
   const o = t.loc && t.loc.tz ? { timeZone: t.loc.tz } : {}, n = new Date();
   return { d: n.toLocaleDateString("sv", o), m: toMin(n.toLocaleTimeString("sv", { ...o, hour12: false }).slice(0, 5)) };
@@ -2199,7 +2202,7 @@ async function checkin(t, file) {
 // ===== 附近: 廁所/便利商店/ATM/置物櫃/車站/藥局(OpenStreetMap Overpass) =====
 const NEAR = [["廁所", "🚻", 'nwr["amenity"="toilets"]', { JP: "トイレ", KR: "화장실" }, "toilet"], ["便利商店", "🏪", 'nwr["shop"="convenience"]', { JP: "コンビニ", KR: "편의점" }, "convenience store"],
   ["ATM", "🏧", 'nwr["amenity"="atm"]', {}, "ATM"], ["置物櫃", "🧳", 'nwr["amenity"~"^(locker|luggage_locker)$"]', { JP: "コインロッカー", KR: "물품보관함" }, "luggage locker"],
-  ["車站", "🚉", 'nwr["railway"="station"]', { JP: "駅", KR: "역" }, "station"], ["藥局", "💊", 'nwr["amenity"="pharmacy"]', { JP: "薬局", KR: "약국" }, "pharmacy"]];
+  ["車站", "🚉", 'nwr["railway"="station"]', { JP: "駅", KR: "역" }, "station"], ["藥局", "💊", 'nwr["amenity"="pharmacy"]', { JP: "薬局", KR: "약국" }, "pharmacy"], ["避難所", "🏃", 'nwr["emergency"="assembly_point"];nwr["evacuation_center"="yes"];nwr["amenity"="shelter"]["shelter_type"!="public_transport"]', { JP: "避難所", KR: "대피소" }, "evacuation shelter"]];
 let nearRes = null;
 async function findNear(t, kind) {
   const k = NEAR.find((x) => x[0] === kind); filt.near = kind;
@@ -2208,7 +2211,7 @@ async function findNear(t, kind) {
   if (!pos) { nearRes = { kind, err: "拿不到位置：請允許網頁使用定位" }; return render(); }
   const lat = pos.latitude, lon = pos.longitude; nearRes = { kind, lat, lon, busy: "搜尋中…" }; render();
   try {
-    const q = `[out:json][timeout:15];(${k[2]}(around:1000,${lat},${lon}););out center 40;`;
+    const q = `[out:json][timeout:15];(${k[2].split(";").map((x) => `${x}(around:1000,${lat},${lon});`).join("")});out center 40;`;
     const j = await (await fetch("https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(q))).json();
     const list = (j.elements || []).map((e) => { const p = { lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon }; return { name: e.tags?.["name:zh"] || e.tags?.name || e.tags?.brand || kind, brand: e.tags?.brand && e.tags.brand !== e.tags?.name ? e.tags.brand : "", ...p, d: distKm({ lat, lon }, p) }; })
       .filter((x) => x.lat != null).sort((a, b) => a.d - b.d).slice(0, 15);
@@ -2342,6 +2345,158 @@ function tripHolHtml(t) {
     <div class="mut" style="margin-top:4px">祭典日期每年可能不同，出發前再查一次；<a href="https://www.google.com/search?q=${encodeURIComponent(`${t.loc ? t.loc.name : ""} ${t.start.slice(0, 7)} 活動 祭典`)}" target="_blank" rel="noopener">搜尋當地活動 ↗</a></div></div>`;
 }
 
+// ===== 通知: App 開著時跳提示; 有允許通知的話也發系統通知 =====
+function notify(title, body) {
+  toast(`${title}：${body}`);
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const o = { body, icon: "icon-192.png", tag: title + body };
+  (navigator.serviceWorker ? navigator.serviceWorker.ready.then((r) => r.showNotification(title, o)) : Promise.reject()).catch(() => { try { new Notification(title, o); } catch (e) { } });
+}
+
+// ===== 天氣警示(依預報推算: 強風、大雨、大雪、酷熱、嚴寒) =====
+function wxAlerts(w) {
+  if (!w) return [];
+  const [, mx, mn, , gust, rain, snow] = w, a = [];
+  if (gust != null && gust >= 72) a.push(`${gust >= 90 ? "🌀 暴風" : "💨 強風"}（陣風 ${Math.round(gust / 3.6)} m/s）${gust >= 90 ? "：可能是颱風或低氣壓，交通可能停駛" : ""}`);
+  if (rain != null && rain >= 50) a.push(`${rain >= 100 ? "🌊 豪雨" : "☔ 大雨"}（${Math.round(rain)} mm）${rain >= 100 ? "：注意淹水、土石流" : ""}`);
+  if (snow != null && snow >= 5) a.push(`❄️ 大雪（${Math.round(snow)} cm）：交通可能延誤`);
+  if (mx >= 35) a.push(`🥵 酷熱（${mx}°）：多喝水、避開中午`);
+  if (mn <= -5) a.push(`🥶 嚴寒（${mn}°）`);
+  return a;
+}
+const WXOFF = { JP: ["日本氣象廳 警報・注意報", "https://www.jma.go.jp/bosai/warning/"], KR: ["韓國氣象廳", "https://www.weather.go.kr/w/index.do"], TH: ["泰國氣象局", "https://www.tmd.go.th/en/"] };
+function wxAlertHtml(t, d) {
+  const a = wxAlerts(wxOf(t, d)); if (!a.length) return "";
+  const o = WXOFF[ccOf(t)];
+  return `<div class="card noprint" style="padding:8px 10px;border-color:var(--red)"><b style="color:var(--red)">⚠️ 天氣警示（依預報推算）</b>${a.map((x) => `<div>${esc(x)}</div>`).join("")}${o ? `<div class="mut"><a href="${o[1]}" target="_blank" rel="noopener">看${o[0]} ↗</a></div>` : ""}</div>`;
+}
+function tripWxAlertHtml(t) {
+  const rows = tripDays(t).filter((d) => d >= today()).map((d) => [d, wxAlerts(wxOf(t, d))]).filter(([, a]) => a.length);
+  if (!rows.length) return "";
+  const o = WXOFF[ccOf(t)];
+  return `<div class="card" style="border-color:var(--red)"><b style="color:var(--red)">⚠️ 天氣警示</b>${rows.map(([d, a]) => `<div data-act="gocal" data-d="${d}" style="padding:3px 0"><b>${d.slice(5)}（${dayName(d)}）</b> ${a.map(esc).join("、")}</div>`).join("")}<div class="mut">依天氣預報推算，正式警報以當地氣象單位為準${o ? `・<a href="${o[1]}" target="_blank" rel="noopener">${o[0]} ↗</a>` : ""}</div></div>`;
+}
+
+// ===== 地震、海嘯(日本: P2P地震情報 API, 氣象廳資料) =====
+let eqList = null, eqTs = 0;
+const EQS = { 10: "1", 20: "2", 30: "3", 40: "4", 45: "5弱", 50: "5強", 55: "6弱", 60: "6強", 70: "7" };
+function loadEq(force) {
+  if (!force && Date.now() - eqTs < 5 * 60e3) return; eqTs = Date.now();
+  fetch("https://api.p2pquake.net/v2/history?codes=551&codes=552&limit=30").then((r) => r.json()).then((j) => {
+    eqList = j; const t = T();
+    for (const q of eqRelevant(t)) if (!(S.eqSeen ||= []).includes(q.id)) { S.eqSeen.push(q.id); S.eqSeen = S.eqSeen.slice(-50); saveLocal(); notify(q.code === 552 ? "🌊 海嘯資訊" : "🌏 地震", eqLine(t, q)); }
+    if (!$("#dlg").open) render();
+  }).catch(() => {});
+}
+const eqTime = (q) => new Date(((q.earthquake && q.earthquake.time) || q.time).replace(/\//g, "-").replace(" ", "T").slice(0, 19) + "+09:00");
+function eqRelevant(t, hours = 24) {
+  if (!eqList || ccOf(t) !== "JP" || !t.loc) return [];
+  return eqList.filter((q) => {
+    if (Date.now() - eqTime(q) > hours * 3600e3) return false;
+    if (q.code === 552) return !q.cancelled && (q.areas || []).length;
+    const h = q.earthquake && q.earthquake.hypocenter; if (!h || h.latitude == null || h.latitude < -90) return q.earthquake && q.earthquake.maxScale >= 50;
+    const dk = distKm(t.loc, { lat: h.latitude, lon: h.longitude });
+    return (q.earthquake.maxScale >= 30 && dk <= 300) || q.earthquake.maxScale >= 55;
+  });
+}
+function eqLine(t, q) {
+  if (q.code === 552) return `海嘯${(q.areas || []).some((a) => a.grade === "MajorWarning") ? "大警報" : (q.areas || []).some((a) => a.grade === "Warning") ? "警報" : "注意報"}：${(q.areas || []).slice(0, 4).map((a) => a.name).join("、")}，請遠離海邊、往高處避難`;
+  const e = q.earthquake, h = e.hypocenter || {}, dk = h.latitude > -90 ? distKm(t.loc, { lat: h.latitude, lon: h.longitude }) : null;
+  return `${eqTime(q).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} ${h.name || ""}${h.magnitude > 0 ? ` M${h.magnitude}` : ""}・最大震度 ${EQS[e.maxScale] || "?"}${dk != null ? `・距離${t.loc.name}約 ${Math.round(dk)} km` : ""}${e.domesticTsunami && !/None|Unknown/.test(e.domesticTsunami) ? "・⚠️ 可能有海嘯" : ""}`;
+}
+function eqHtml(t) {
+  const l = eqRelevant(t); if (!l.length) return "";
+  return `<div class="card" style="border-color:var(--red)"><b style="color:var(--red)">🌏 地震／海嘯（24 小時內）</b>${l.slice(0, 4).map((q) => `<div style="padding:3px 0">${esc(eqLine(t, q))}</div>`).join("")}
+    <div class="row" style="margin-top:6px"><button class="sm" data-act="shelter">🏃 找附近避難所</button><a class="btn sm" href="https://www3.nhk.or.jp/nhkworld/zh/news/" target="_blank" rel="noopener" style="text-decoration:none">NHK 中文新聞 ↗</a></div></div>`;
+}
+const EQTIPS = `<h2>地震時怎麼做（日本）</h2><div class="card"><div>1. 先保護頭部，躲到桌子下，搖晃停止前不要往外跑</div><div>2. 停止後關火、打開門確保出口</div><div>3. 有海嘯警報：馬上往高處或高樓避難，不要回海邊</div><div>4. 跟家人報平安：<b>災害用伝言ダイヤル 171</b>、LINE、Facebook 平安回報</div>
+  <div class="mut" style="margin-top:4px">建議下載觀光廳官方 App「Safety tips」（有中文，會推播地震、海嘯警報）</div></div>`;
+
+// ===== 打烊前提醒(App 開著時, 每 30 秒檢查現在這站) =====
+const closeSent = new Set();
+function closeCheck(t) {
+  const { d, m } = tripNow(t);
+  for (const i of t.itin.filter((x) => x.date === d && x.time && !isMulti(x))) {
+    const sp = (i.spotId && t.spots.find((s) => s.id === i.spotId)) || t.spots.find((s) => s.name === i.title), h = parseHours(i.hours || (sp && sp.hours));
+    if (!h || h.close == null || h.close - h.open >= 1440) continue;
+    const s = toMin(i.time), e = toMin(i.end) || s + 60, left = h.close - m;
+    if (m >= s - 30 && m < e && left > 0 && left <= 30 && !closeSent.has(i.id + d)) { closeSent.add(i.id + d); notify("⏰ 快打烊", `${i.title} ${hm(h.close)} 打烊（還有 ${left} 分）`); }
+  }
+}
+
+// ===== 旅程影片: 標題 → 路線動畫 → 照片(緩慢放大) → 結尾, 用 canvas 錄成影片 =====
+async function makeVideo(t) {
+  if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) return alert("這個瀏覽器不支援產生影片（請用新版 Chrome 或 Safari）");
+  const ps = diaryDays(t).flatMap((d) => { const e = t.diary.find((x) => x.date === d); return e ? e.photos.map((p) => ({ ...p, d, text: (e.text || "").split("\n")[0] })) : []; }).slice(0, 40);
+  const pts = t.itin.filter((i) => i.lat != null && i.date).sort((a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || "")));
+  if (!ps.length && pts.length < 2) return alert("日記裡要有照片，或行程要有定位，才能做影片");
+  const W = 720, H = 1280, cv = document.createElement("canvas"); cv.width = W; cv.height = H; const g = cv.getContext("2d");
+  const ov = document.createElement("div");
+  ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;gap:10px";
+  ov.innerHTML = `<div id="vSt">準備照片…</div><canvas id="vPrev" width="180" height="320" style="border-radius:8px"></canvas><button id="vX" style="padding:8px 16px">取消</button>`;
+  document.body.appendChild(ov); let stop = false; $("#vX").onclick = () => { stop = true; };
+  const imgs = [];
+  for (const p of ps) {
+    let b = await fget(p.fileId); if (!b && window.TravelSync && TravelSync.user) b = await TravelSync.getFile(t, p.fileId).catch(() => null);
+    if (b) try { imgs.push({ ...p, im: await createImageBitmap(b) }); } catch (e) { }
+    if (stop) return ov.remove();
+  }
+  const startD = t.start ? new Date(t.start + "T00:00") : null, dayN = (d) => startD ? Math.round((new Date(d + "T00:00") - startD) / 864e5) + 1 : null;
+  const font = (px, w = 700) => `${w} ${px}px system-ui, -apple-system, "PingFang TC", "Noto Sans TC", sans-serif`;
+  const bg = () => { const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, "#0f766e"); gr.addColorStop(1, "#0b1320"); g.fillStyle = gr; g.fillRect(0, 0, W, H); };
+  const text = (s, y, px, a = 1, w) => { g.globalAlpha = a; g.fillStyle = "#fff"; g.font = font(px, w); g.textAlign = "center"; g.fillText(s, W / 2, y); g.globalAlpha = 1; };
+  const flags = [...new Set(S.trips.filter((x) => x.id === t.id).map((x) => (x.loc && x.loc.cc) || CUR2CC[x.cur]))].map(flag).join(" ");
+  // 路線投影
+  const la = pts.map((p) => p.lat), lo = pts.map((p) => p.lon), mnA = Math.min(...la), mxA = Math.max(...la), mnO = Math.min(...lo), mxO = Math.max(...lo);
+  const k = Math.cos(((mnA + mxA) / 2) * Math.PI / 180), sc = Math.min((W - 140) / Math.max(1e-4, (mxO - mnO) * k), (H - 520) / Math.max(1e-4, mxA - mnA));
+  const P = (p) => [W / 2 + (p.lon - (mnO + mxO) / 2) * k * sc, H / 2 + 40 - (p.lat - (mnA + mxA) / 2) * sc];
+  const scenes = [{ dur: 2500, draw: (f) => { bg(); text(flags, H / 2 - 120, 80, Math.min(1, f * 3)); text(t.name, H / 2, 64, Math.min(1, f * 2)); text(`${t.start || ""} ～ ${t.end || ""}`, H / 2 + 70, 32, Math.min(1, f * 2), 400); } }];
+  if (pts.length >= 2) scenes.push({ dur: 5000, draw: (f) => {
+    bg(); text("🗺 這趟走過的路", 160, 40);
+    const n = Math.max(1, Math.floor(f * 1.15 * (pts.length - 1)) + 1), cur = Math.min(pts.length - 1, n);
+    g.strokeStyle = "rgba(255,255,255,.9)"; g.lineWidth = 5; g.lineJoin = "round"; g.beginPath();
+    pts.slice(0, cur + 1).forEach((p, i) => { const [x, y] = P(p); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke();
+    pts.slice(0, cur + 1).forEach((p, i) => { const [x, y] = P(p); g.fillStyle = i === cur ? "#fbbf24" : "#5eead4"; g.beginPath(); g.arc(x, y, i === cur ? 12 : 7, 0, 7); g.fill(); });
+    const c = pts[cur]; text(`Day ${dayN(c.date) || ""}・${c.title}`, H - 200, 34, 1, 500);
+  } });
+  imgs.forEach((p, i) => scenes.push({ dur: 2600, draw: (f) => {
+    g.fillStyle = "#000"; g.fillRect(0, 0, W, H);
+    const z = 1 + 0.08 * f, r = Math.max(W / p.im.width, H / p.im.height) * z, w = p.im.width * r, h = p.im.height * r;
+    g.globalAlpha = Math.min(1, f * 5, (1 - f) * 6 + 0.3); g.drawImage(p.im, (W - w) / 2 - (i % 2 ? 1 : -1) * 20 * f, (H - h) / 2, w, h); g.globalAlpha = 1;
+    const gr = g.createLinearGradient(0, H - 300, 0, H); gr.addColorStop(0, "rgba(0,0,0,0)"); gr.addColorStop(1, "rgba(0,0,0,.75)"); g.fillStyle = gr; g.fillRect(0, H - 300, W, 300);
+    text(`Day ${dayN(p.d) || ""}・${p.d.slice(5)}（${dayName(p.d)}）`, H - 130, 36); if (p.text) text(p.text.slice(0, 22), H - 80, 28, 0.9, 400);
+  } }));
+  const places = new Set(t.itin.map((i) => i.title)).size;
+  scenes.push({ dur: 2500, draw: (f) => { bg(); text(`${tripDays(t).length || diaryDays(t).length} 天・${places} 個地方・${imgs.length} 張照片`, H / 2 - 20, 40, Math.min(1, f * 3)); text("下次見 👋", H / 2 + 60, 48, Math.min(1, f * 2)); } });
+  const mime = ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m)) || "";
+  const rec = new MediaRecorder(cv.captureStream(30), mime ? { mimeType: mime, videoBitsPerSecond: 4e6 } : {}), chunks = [];
+  rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  const done = new Promise((r) => (rec.onstop = r));
+  rec.start(500);
+  const total = scenes.reduce((s, x) => s + x.dur, 0), prev = $("#vPrev").getContext("2d");
+  let t0 = performance.now();
+  await new Promise((res) => {
+    const frame = (now) => {
+      let el = now - t0; if (stop || el >= total) return res();
+      let i = 0; while (el >= scenes[i].dur) { el -= scenes[i].dur; i++; }
+      scenes[i].draw(el / scenes[i].dur); prev.drawImage(cv, 0, 0, 180, 320);
+      $("#vSt").textContent = `產生影片中… ${Math.round(((now - t0) / total) * 100)}%（請不要切換畫面）`;
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  });
+  rec.stop(); await done; ov.remove(); imgs.forEach((p) => p.im.close && p.im.close());
+  if (stop) return;
+  const ext = /mp4/.test(rec.mimeType || mime) ? "mp4" : "webm", blob = new Blob(chunks, { type: (rec.mimeType || mime || "video/webm").split(";")[0] }), url = URL.createObjectURL(blob);
+  const file = new File([blob], `${t.name}.${ext}`, { type: blob.type }), dlg = $("#dlg");
+  dlg.onclose = () => URL.revokeObjectURL(url);
+  $("#dlgForm").innerHTML = `<h3>🎬 ${esc(t.name)}</h3><video src="${url}" controls playsinline style="width:100%;max-height:60vh;border-radius:8px;background:#000"></video>
+    <div class="mut">${(blob.size / 1e6).toFixed(1)} MB・${ext.toUpperCase()}${ext === "webm" ? "（iPhone 相簿不能直接開 WebM，可以用電腦版 Chrome 轉檔或直接分享到 LINE）" : ""}</div>
+    <div class="row" style="margin-top:12px"><a class="btn" href="${url}" download="${esc(t.name)}.${ext}" style="text-decoration:none">⬇ 下載</a>${navigator.canShare && navigator.canShare({ files: [file] }) ? '<button type="button" class="pri" id="vShare">分享</button>' : ""}<span class="sp"></span><button value="cancel">關閉</button></div>`;
+  if ($("#vShare")) $("#vShare").onclick = () => navigator.share({ files: [file], title: t.name }).catch(() => {});
+  dlg.showModal();
+}
+
 // ===== 畫面 =====
 const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["books", "✈️", "訂位"], ["tickets", "🎫", "票券"], ["exp", "💰", "花費"], ["fx", "🧰", "工具"], ["pack", "📝", "清單"]];
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
@@ -2368,7 +2523,9 @@ const V = {
     const tkToday = t.tickets.filter((k) => k.date === today() && !k.used);
     let h = `<div class="card"><h3>${esc(t.name)}</h3><div class="mut">${t.start || "?"} ～ ${t.end || "?"}・${t.people.map(esc).join("、")}</div>
       ${days !== null ? `<div class="big" style="margin-top:6px">${days > 0 ? `倒數 ${days} 天` : days === 0 ? "今天出發！" : t.end && today() <= t.end ? `旅程第 ${1 - days} 天` : "已結束"}</div>` : `<div class="mut" style="margin-top:6px">到 ⚙︎ 設定日期</div>`}</div>`;
-    h += nextStopHtml(t) + taxRemindHtml(t);
+    const live = t.start && t.end && tripNow(t).d >= daysBefore(t.start, 3) && tripNow(t).d <= t.end;
+    if (live && ccOf(t) === "JP") loadEq();
+    h += eqHtml(t) + nextStopHtml(t) + taxRemindHtml(t) + tripWxAlertHtml(t);
     if (t.start && t.end && tripNow(t).d >= t.start && tripNow(t).d <= t.end) h += `<div class="row" style="margin-bottom:10px"><button data-act="ecard" data-m="taxi" style="flex:1">🚕 回飯店</button><button data-act="ecard" data-m="med" style="flex:1">🆘 緊急卡</button><label class="btn" style="margin:0;flex:1;text-align:center">📸 打卡<input type="file" accept="image/*" capture="environment" id="ckIn" hidden></label></div>`;
     const tn = tripNow(t).d, daily = dailyBudget(t);
     if (daily && tripDays(t).includes(tn)) {
@@ -2561,7 +2718,12 @@ const TOOLS = {
   },
   緊急(t) {
     const cc = ccOf(t), list = SOS[cc] || [["緊急（多數國家通用）", "112"]];
-    return `<div class="card row" data-act="ecard" style="border-color:var(--red)"><span class="sp">🆘 <b>緊急卡</b><div class="mut">大字顯示飯店地址給司機、過敏與病史給醫護人員看</div></span><span class="mut">›</span></div>
+    if (cc === "JP") loadEq();
+    const nOk = "Notification" in window && Notification.permission === "granted";
+    const eqAll = cc === "JP" && eqList && t.loc ? eqList.filter((q) => q.code === 551 && q.earthquake && q.earthquake.maxScale >= 30).slice(0, 5) : [];
+    const extra = `${eqHtml(t)}${nOk ? "" : `<div class="card row"><span class="sp mut">🔔 開啟通知：快打烊、地震時跳通知（網頁要開著；iPhone 要先加入主畫面）</span><button class="sm pri" data-act="notifyok">開啟</button></div>`}`
+      + (cc === "JP" ? `<h2>最近的地震（震度 3 以上）</h2><div class="card">${eqAll.length ? eqAll.map((q) => `<div style="padding:3px 0">${esc(eqLine(t, q))}</div>`).join("") : '<div class="mut">載入中或最近沒有</div>'}</div>${EQTIPS}` : "");
+    return extra + `<div class="card row" data-act="ecard" style="border-color:var(--red)"><span class="sp">🆘 <b>緊急卡</b><div class="mut">大字顯示飯店地址給司機、過敏與病史給醫護人員看</div></span><span class="mut">›</span></div>
       <h2>${esc((TAX[cc] || [""])[0] || t.loc?.country || "當地")} 緊急電話</h2><div class="card"><table>${list.map(([n, tel]) => `<tr><td>${esc(n)}</td><td class="r big" style="font-size:calc(20px*var(--fz,1))">${telLink(tel)}</td></tr>`).join("")}</table></div>
       <h2>台灣外交部</h2><div class="card"><table><tr><td>外交部緊急聯絡中心（24小時）</td><td class="r">${telLink("+886-800-085-095")}</td></tr></table>
       <div class="mut">當地駐外館處電話請到 <a href="https://www.boca.gov.tw/" target="_blank" rel="noopener">外交部領事事務局</a> 查詢後按 ＋ 存下來</div></div>
@@ -2765,6 +2927,9 @@ document.addEventListener("click", async (e) => {
     else if (act === "premap") return preMap(t);
     else if (act === "calprev" || act === "calnext") { const ds = calDays(t), k = ds.indexOf(filt.cd) + (act === "calnext" ? 1 : -1); if (ds[k]) filt.cd = ds[k]; calScroll.done = null; return render(); }
     else if (act === "route") { const sq = routeSeq(t, filt.cd), k = +el.dataset.k; return sq[k] && showRoute(sq[k - 1].o, sq[k].i); }
+    else if (act === "shelter") { filt.tool = "附近"; goTab("fx"); return findNear(t, "避難所"); }
+    else if (act === "video") return makeVideo(t);
+    else if (act === "notifyok") { if (!("Notification" in window)) return alert("這個瀏覽器不支援通知（iPhone 要先「加入主畫面」再從主畫面開啟）"); return Notification.requestPermission().then((p) => { toast(p === "granted" ? "已開啟通知" : "沒有允許通知"); render(); }); }
     else if (act === "near") return findNear(t, el.dataset.k);
     else if (act === "trgo") { trState.src = $("#trSrc").value.trim(); if (!trState.src) return; trState.busy = "翻譯中…"; trState.out = ""; render(); trText(trState.src, t).then((o) => { trState.out = o; trState.busy = o ? "" : "翻譯失敗"; }).catch(() => { trState.busy = "翻譯失敗（需要網路）"; }).finally(render); return; }
     else if (act === "hourschk") return hoursCheck(t);
