@@ -2041,6 +2041,61 @@ function voiceExp(t) {
   r.start();
 }
 
+// ===== 足跡地圖: 所有旅程 + 自己補的地方(S.fp, 這台裝置) =====
+const flag = (cc) => cc && cc.length === 2 ? String.fromCodePoint(...[...cc.toUpperCase()].map((c) => 0x1f1a5 + c.charCodeAt(0))) : "📍";
+function fpPlaces() {
+  const out = [];
+  for (const t of S.trips) {
+    if (!t.loc || isBlank(t)) continue;
+    const went = !t.start || t.start <= today();
+    out.push({ name: t.loc.name, country: t.loc.country, cc: (t.loc.cc || CUR2CC[t.cur] || "").toUpperCase(), lat: t.loc.lat, lon: t.loc.lon, trip: t.name, start: t.start, end: t.end, days: went ? tripDays(t).filter((d) => d <= today()).length : 0, plan: !went, tid: t.id });
+  }
+  for (const p of S.fp || []) out.push({ ...p, cc: (p.cc || "").toUpperCase(), manual: true });
+  return out;
+}
+function fpHtml() {
+  const ps = fpPlaces(), went = ps.filter((p) => !p.plan);
+  const ccs = [...new Set(went.map((p) => p.cc).filter(Boolean))], cities = [...new Set(went.map((p) => p.name))];
+  const days = went.reduce((s, p) => s + (p.days || 0), 0);
+  const byC = {}; went.forEach((p) => (byC[p.cc || "?"] ||= { country: p.country, list: [] }).list.push(p));
+  return `<div class="grid2"><div class="card"><div class="mut">去過國家</div><div class="big">${ccs.length}</div></div><div class="card"><div class="mut">城市・旅行天數</div><div class="big">${cities.length}<small class="mut"> 城・${days} 天</small></div></div></div>
+    <div id="fpmap" style="height:50vh;border-radius:12px;border:1px solid var(--line);margin-bottom:10px"></div>
+    <div class="row" style="margin-bottom:8px"><span class="sp mut">${ccs.map(flag).join(" ")}</span><button class="sm" data-act="fpadd">＋ 補去過的地方</button></div>
+    ${Object.entries(byC).sort((a, b) => b[1].list.length - a[1].list.length).map(([cc, g]) => `<div class="card"><b>${flag(cc)} ${esc(g.country || cc)}</b>${g.list.map((p) => `<div class="row" style="padding:4px 0;border-top:1px solid var(--line)"><span class="sp">${esc(p.name)}${p.trip && p.trip !== p.name ? ` <span class="mut">・${esc(p.trip)}</span>` : ""}</span><span class="mut">${esc((p.start || p.year || "").slice(0, 7))}${p.days ? `・${p.days} 天` : ""}</span>${p.manual ? `<button class="sm" data-act="fpdel" data-id="${p.id}">✕</button>` : ""}</div>`).join("")}</div>`).join("")}
+    ${ps.some((p) => p.plan) ? `<h2>計畫中</h2><div class="card">${ps.filter((p) => p.plan).map((p) => `<div>${flag(p.cc)} ${esc(p.name)} <span class="mut">${p.trip !== p.name ? "・" + esc(p.trip) : ""}・${esc(p.start || "")}</span></div>`).join("")}</div>` : ""}
+    ${!ps.length ? '<div class="empty">旅程在 ⚙︎ 設定目的地城市就會出現在這裡，以前去過的可以按「＋ 補去過的地方」</div>' : ""}`;
+}
+async function initFp() {
+  const el = $("#fpmap"); if (!el) return;
+  let L; try { L = await loadLeaflet(); } catch (e) { el.innerHTML = '<div class="empty">地圖載入失敗（需要網路）</div>'; return; }
+  if (!el.isConnected) return;
+  const m = L.map(el, { worldCopyJump: true });
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, crossOrigin: "anonymous", attribution: "© OpenStreetMap" }).addTo(m);
+  const pts = [];
+  for (const p of fpPlaces()) {
+    if (p.lat == null) continue;
+    L.circleMarker([p.lat, p.lon], { radius: 9, color: p.plan ? "#d97706" : "#0f766e", fillOpacity: p.plan ? 0.3 : 0.8, dashArray: p.plan ? "4 4" : null })
+      .addTo(m).bindPopup(`<b>${flag(p.cc)} ${esc(p.name)}</b><br>${p.trip ? esc(p.trip) + "<br>" : ""}${esc(p.start || p.year || "")}${p.days ? `・${p.days} 天` : ""}${p.plan ? "（計畫中）" : ""}`);
+    pts.push([p.lat, p.lon]);
+  }
+  if (pts.length > 1) m.fitBounds(pts, { padding: [40, 40], maxZoom: 6 });
+  else if (pts.length) m.setView(pts[0], 5); else m.setView([25, 121], 3);
+}
+function fpAdd() {
+  const f = $("#dlgForm"), dlg = $("#dlg"); dlg.onclose = null;
+  f.innerHTML = `<h3>＋ 補去過的地方</h3><label>城市</label><input name="q" placeholder="例：京都、首爾、Paris" required><label>什麼時候（選填）</label><input type="month" name="ym">
+    <div class="mut" id="fpSt"></div><div class="row" style="margin-top:14px"><span class="sp"></span><button value="cancel" formnovalidate>取消</button><button type="button" class="pri" id="fpOk">加入</button></div>`;
+  $("#fpOk").onclick = async () => {
+    const q = f.elements.q.value.trim(); if (!q) return;
+    $("#fpSt").textContent = "查詢中…";
+    let g = null; try { g = await geoCity(q); } catch (e) { }
+    if (!g) { $("#fpSt").textContent = "找不到這個城市，換個寫法試試（中文或英文）"; return; }
+    (S.fp ||= []).push({ id: uid(), name: g.name, country: g.country, cc: g.cc, lat: g.lat, lon: g.lon, year: f.elements.ym.value });
+    saveLocal(); dlg.close(); render();
+  };
+  dlg.showModal();
+}
+
 // ===== 畫面 =====
 const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["books", "✈️", "訂位"], ["tickets", "🎫", "票券"], ["exp", "💰", "花費"], ["fx", "🧰", "工具"], ["pack", "📝", "清單"]];
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
@@ -2196,7 +2251,7 @@ const V = {
   },
   fx(t) {
     const sub = filt.tool || "匯率";
-    const head = `<div class="chips">${["匯率", "退稅", "小費", "外語", "緊急"].map((x) => `<button class="${x === sub ? "on" : ""}" data-f="tool" data-v="${x}">${x}</button>`).join("")}</div>`;
+    const head = `<div class="chips">${["匯率", "退稅", "小費", "外語", "緊急", "足跡"].map((x) => `<button class="${x === sub ? "on" : ""}" data-f="tool" data-v="${x}">${x}</button>`).join("")}</div>`;
     return head + TOOLS[sub](t);
   },
   fxRate(t) {
@@ -2224,6 +2279,7 @@ const V = {
 };
 
 const TOOLS = {
+  足跡: () => fpHtml(),
   匯率: (t) => V.fxRate(t),
   退稅(t) {
     const cc = filt.taxcc || (TAX[ccOf(t)] ? ccOf(t) : "JP");
@@ -2398,6 +2454,7 @@ function render() {
   $("#fab").style.display = fabKind() ? "" : "none";
   if (S.tab === "fx") toolBind(t);
   if (S.tab === "itin" && filt.iv === "地圖") initMap(t);
+  if (S.tab === "fx" && filt.tool === "足跡") initFp();
   if ((S.tab === "tickets" && filt.tk === "優惠券") || (S.tab === "exp" && filt.ex === "收據整理") || (S.tab === "itin" && filt.iv === "日記") || (S.tab === "pack" && (filt.pk || "必買") === "必買")) fillThumbs();
   if (S.tab === "itin" && (filt.iv || "行事曆") === "行事曆") { calScroll(); gRouteDay(t, filt.cd); autoGeoDay(t, filt.cd); }
   if (S.tab === "itin" && filt.iv === "清單" && S.gkey) [...new Set(t.itin.map((i) => i.date))].forEach((d) => d && gRouteDay(t, d));
@@ -2450,6 +2507,8 @@ document.addEventListener("click", async (e) => {
     else if (act === "premap") return preMap(t);
     else if (act === "calprev" || act === "calnext") { const ds = calDays(t), k = ds.indexOf(filt.cd) + (act === "calnext" ? 1 : -1); if (ds[k]) filt.cd = ds[k]; calScroll.done = null; return render(); }
     else if (act === "route") { const sq = routeSeq(t, filt.cd), k = +el.dataset.k; return sq[k] && showRoute(sq[k - 1].o, sq[k].i); }
+    else if (act === "fpadd") return fpAdd();
+    else if (act === "fpdel") { const id = el.dataset.id, old = S.fp; S.fp = S.fp.filter((x) => x.id !== id); saveLocal(); render(); return toast("已刪除", "復原", () => { S.fp = old; saveLocal(); render(); }); }
     else if (act === "ecard") return showECard(t, el.dataset.m);
     else if (act === "voiceexp") return voiceExp(t);
     else if (act === "optday") return optimizeDay(t, filt.cd);
