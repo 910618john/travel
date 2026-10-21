@@ -2193,6 +2193,73 @@ async function checkin(t, file) {
   save(); render(); toast(`已打卡：${tm} ${place || ""}`.trim());
 }
 
+// ===== 附近: 廁所/便利商店/ATM/置物櫃/車站/藥局(OpenStreetMap Overpass) =====
+const NEAR = [["廁所", "🚻", 'nwr["amenity"="toilets"]', { JP: "トイレ", KR: "화장실" }, "toilet"], ["便利商店", "🏪", 'nwr["shop"="convenience"]', { JP: "コンビニ", KR: "편의점" }, "convenience store"],
+  ["ATM", "🏧", 'nwr["amenity"="atm"]', {}, "ATM"], ["置物櫃", "🧳", 'nwr["amenity"~"^(locker|luggage_locker)$"]', { JP: "コインロッカー", KR: "물품보관함" }, "luggage locker"],
+  ["車站", "🚉", 'nwr["railway"="station"]', { JP: "駅", KR: "역" }, "station"], ["藥局", "💊", 'nwr["amenity"="pharmacy"]', { JP: "薬局", KR: "약국" }, "pharmacy"]];
+let nearRes = null;
+async function findNear(t, kind) {
+  const k = NEAR.find((x) => x[0] === kind); filt.near = kind;
+  nearRes = { kind, busy: "定位中…" }; render();
+  const pos = await new Promise((res) => navigator.geolocation ? navigator.geolocation.getCurrentPosition((p) => res(p.coords), () => res(null), { enableHighAccuracy: true, timeout: 10000 }) : res(null));
+  if (!pos) { nearRes = { kind, err: "拿不到位置：請允許網頁使用定位" }; return render(); }
+  const lat = pos.latitude, lon = pos.longitude; nearRes = { kind, lat, lon, busy: "搜尋中…" }; render();
+  try {
+    const q = `[out:json][timeout:15];(${k[2]}(around:1000,${lat},${lon}););out center 40;`;
+    const j = await (await fetch("https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(q))).json();
+    const list = (j.elements || []).map((e) => { const p = { lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon }; return { name: e.tags?.["name:zh"] || e.tags?.name || e.tags?.brand || kind, brand: e.tags?.brand && e.tags.brand !== e.tags?.name ? e.tags.brand : "", ...p, d: distKm({ lat, lon }, p) }; })
+      .filter((x) => x.lat != null).sort((a, b) => a.d - b.d).slice(0, 15);
+    nearRes = { kind, lat, lon, list };
+  } catch (e) { nearRes = { kind, lat, lon, list: [], err: "搜尋失敗（需要網路），可以改用下面的 Google 地圖" }; }
+  render();
+}
+function nearHtml(t) {
+  const kind = filt.near || "廁所", k = NEAR.find((x) => x[0] === kind), r = nearRes && nearRes.kind === kind ? nearRes : null;
+  const cc = ccOf(t), q = k[3][cc] || k[4];
+  const g = `https://www.google.com/maps/search/${encodeURIComponent(q)}${r && r.lat ? `/@${r.lat},${r.lon},16z` : ""}`;
+  return `<div class="chips">${NEAR.map(([n, ic]) => `<button class="${n === kind ? "on" : ""}" data-act="near" data-k="${n}">${ic} ${n}</button>`).join("")}</div>
+    ${!r ? `<div class="card" style="text-align:center"><button class="pri" data-act="near" data-k="${kind}">${k[1]} 找附近的${kind}</button><div class="mut" style="margin-top:6px">用目前位置找 1 公里內的${kind}</div></div>` : ""}
+    ${r && r.busy ? `<div class="card mut">${r.busy}</div>` : ""}${r && r.err ? `<div class="card" style="color:var(--red)">${esc(r.err)}</div>` : ""}
+    ${r && r.list ? (r.list.length ? `<div class="card">${r.list.map((x) => `<div class="row" style="padding:6px 0;border-top:1px solid var(--line)"><span class="sp"><b>${esc(x.name)}</b>${x.brand ? ` <span class="mut">${esc(x.brand)}</span>` : ""}<div class="mut">${x.d < 1 ? Math.round(x.d * 1000) + " m" : fmt(x.d, 1) + " km"}・走路約 ${Math.max(1, Math.round((x.d * 1.3) / 4.5 * 60))} 分</div></span><a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination=${x.lat},${x.lon}&travelmode=walking" target="_blank" rel="noopener" style="text-decoration:none">🧭 帶路</a></div>`).join("")}</div>` : `<div class="card mut">1 公里內地圖資料沒有${kind}，試試 Google 地圖</div>`) + `<div class="row" style="margin-bottom:8px"><button class="sm" data-act="near" data-k="${kind}">↻ 重新找</button></div>` : ""}
+    <div class="row"><a href="${g}" target="_blank" rel="noopener">在 Google 地圖找「${esc(q)}」↗</a></div>
+    ${cc === "JP" ? `<div class="mut" style="margin-top:8px">${{ 廁所: "日本的便利商店、車站、百貨公司幾乎都有廁所可以借", ATM: "7-Eleven 的 ATM 大多可以用台灣金融卡／信用卡領日幣", 置物櫃: "大車站都有投幣置物櫃，大行李箱可以找「大型」；也可以用 ecbo cloak 預約寄放", 便利商店: "", 車站: "", 藥局: "藥妝店（ドラッグストア）大多有賣常備藥" }[kind] || ""}</div>` : ""}`;
+}
+
+// ===== 翻譯相機: 拍照 → 辨識文字(Tesseract) → 翻成中文 =====
+const OCR_LANG = { JPY: "jpn+eng", KRW: "kor+eng", CNY: "chi_sim+eng", HKD: "chi_tra+eng", MOP: "chi_tra+eng", TWD: "chi_tra+eng", THB: "tha+eng" };
+const SRC_LANG = { JPY: "ja", KRW: "ko", THB: "th", CNY: "zh-CN", VND: "vi", EUR: "fr", IDR: "id" };
+async function trText(text, t) {
+  try {
+    const j = await (await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=${encodeURIComponent(text.slice(0, 4000))}`)).json();
+    const s = (j[0] || []).map((x) => x[0]).join(""); if (s) return s;
+  } catch (e) { }
+  const j = await (await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0, 450))}&langpair=${SRC_LANG[t.cur] || "en"}|zh-TW`)).json();
+  return j.responseData && j.responseData.translatedText || "";
+}
+let trState = { src: "", out: "", busy: "" };
+function trHtml(t) {
+  const gl = `https://translate.google.com/?sl=auto&tl=zh-TW&op=translate&text=${encodeURIComponent(trState.src.slice(0, 1500))}`;
+  return `<div class="row" style="margin-bottom:8px"><label class="btn pri" style="margin:0;flex:1;text-align:center;color:#fff">📷 拍照翻譯<input type="file" accept="image/*" capture="environment" id="trCam" hidden></label><label class="btn" style="margin:0;flex:1;text-align:center">🖼 選照片<input type="file" accept="image/*" id="trPic" hidden></label></div>
+    ${trState.busy ? `<div class="card mut">${esc(trState.busy)}</div>` : ""}
+    <label>原文（可以修改或直接打字）</label><textarea id="trSrc" style="min-height:90px">${esc(trState.src)}</textarea>
+    <div class="row" style="margin:6px 0"><button class="sm pri" data-act="trgo">翻譯</button><span class="sp"></span>${trState.src ? `<a href="${gl}" target="_blank" rel="noopener">用 Google 翻譯開 ↗</a>` : ""}</div>
+    ${trState.out ? `<div class="card" style="white-space:pre-wrap;font-size:calc(17px*var(--fz,1))">${esc(trState.out)}</div>` : ""}
+    <div class="mut">手寫字、花俏字體辨識不太準；菜單也可以用 Google 翻譯 App 的相機，或 iPhone 照片裡的「原況文字」</div>`;
+}
+async function trPhoto(t, file) {
+  trState = { src: "", out: "", busy: "辨識中…第一次要下載語言檔，約 10～30 秒" }; render();
+  try {
+    const blob = await shrink(file, 1600), Ts = await loadTess();
+    const r = await Promise.race([(async () => { const w = await Ts.createWorker(OCR_LANG[t.cur] || "eng"); try { return await w.recognize(blob); } finally { w.terminate(); } })(), new Promise((_, rej) => setTimeout(() => rej(new Error("逾時")), 90000))]);
+    const cjk = "[\\u3000-\\u9fff\\uac00-\\ud7af\\uff00-\\uffef]";
+    const src = r.data.text.replace(new RegExp(`(${cjk})[ \\t]+(?=${cjk})`, "g"), "$1").replace(/\n{2,}/g, "\n").trim();
+    if (!src) { trState = { src: "", out: "", busy: "照片裡沒辨識到文字，靠近一點、拍正一點再試" }; return render(); }
+    trState = { src, out: "", busy: "翻譯中…" }; render();
+    trState.out = await trText(src, t); trState.busy = trState.out ? "" : "翻譯失敗，可以按「用 Google 翻譯開」";
+  } catch (e) { trState.busy = "失敗（需要網路）：" + e.message; }
+  render();
+}
+
 // ===== 畫面 =====
 const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["books", "✈️", "訂位"], ["tickets", "🎫", "票券"], ["exp", "💰", "花費"], ["fx", "🧰", "工具"], ["pack", "📝", "清單"]];
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
@@ -2349,7 +2416,7 @@ const V = {
   },
   fx(t) {
     const sub = filt.tool || "匯率";
-    const head = `<div class="chips">${["匯率", "退稅", "小費", "外語", "緊急", "足跡"].map((x) => `<button class="${x === sub ? "on" : ""}" data-f="tool" data-v="${x}">${x}</button>`).join("")}</div>`;
+    const head = `<div class="chips">${["匯率", "附近", "翻譯", "退稅", "小費", "外語", "緊急", "足跡"].map((x) => `<button class="${x === sub ? "on" : ""}" data-f="tool" data-v="${x}">${x}</button>`).join("")}</div>`;
     return head + TOOLS[sub](t);
   },
   fxRate(t) {
@@ -2377,6 +2444,8 @@ const V = {
 };
 
 const TOOLS = {
+  附近: (t) => nearHtml(t),
+  翻譯: (t) => trHtml(t),
   足跡: () => fpHtml(),
   匯率: (t) => V.fxRate(t),
   退稅(t) {
@@ -2419,6 +2488,12 @@ const TOOLS = {
 function toolBind(t) {
   const sub = filt.tool || "匯率";
   if (sub === "匯率") return fxBind(t);
+  if (sub === "翻譯") {
+    const on = (e) => { const f = e.target.files[0]; if (f) trPhoto(t, f); };
+    $("#trCam").onchange = on; $("#trPic").onchange = on;
+    $("#trSrc").oninput = (e) => (trState.src = e.target.value);
+    return;
+  }
   if (sub === "退稅") {
     $("#taxCc").onchange = (e) => { filt.taxcc = e.target.value; render(); };
     const p = $("#taxP"); if (!p) return;
@@ -2607,6 +2682,8 @@ document.addEventListener("click", async (e) => {
     else if (act === "premap") return preMap(t);
     else if (act === "calprev" || act === "calnext") { const ds = calDays(t), k = ds.indexOf(filt.cd) + (act === "calnext" ? 1 : -1); if (ds[k]) filt.cd = ds[k]; calScroll.done = null; return render(); }
     else if (act === "route") { const sq = routeSeq(t, filt.cd), k = +el.dataset.k; return sq[k] && showRoute(sq[k - 1].o, sq[k].i); }
+    else if (act === "near") return findNear(t, el.dataset.k);
+    else if (act === "trgo") { trState.src = $("#trSrc").value.trim(); if (!trState.src) return; trState.busy = "翻譯中…"; trState.out = ""; render(); trText(trState.src, t).then((o) => { trState.out = o; trState.busy = o ? "" : "翻譯失敗"; }).catch(() => { trState.busy = "翻譯失敗（需要網路）"; }).finally(render); return; }
     else if (act === "hourschk") return hoursCheck(t);
     else if (act === "airport") return airportPlan(t, t.books.find((x) => x.id === el.dataset.id));
     else if (act === "gotax") { filt.ex = "收據整理"; filt.rf = "退稅"; return goTab("exp"); }
