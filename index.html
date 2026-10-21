@@ -469,7 +469,7 @@ function clockHtml(t) {
     <div class="sp"><div class="mut">台灣</div><div class="big">${clk("Asia/Taipei")}</div></div>
     <div><div class="mut">時差</div><b>${d === 0 ? "相同" : (d > 0 ? "+" : "") + d + " 小時"}</b></div></div>`;
 }
-setInterval(() => { const el = $("#clock"); if (el && !$("#dlg").open) el.innerHTML = clockHtml(T()); }, 30000);
+setInterval(() => { const el = $("#clock"); if (el && !$("#dlg").open) el.innerHTML = clockHtml(T()); const ns = $("#nextStop"); if (ns && !$("#dlg").open) ns.outerHTML = nextStopHtml(T()) || "<div></div>"; }, 30000);
 
 // ===== 地圖(Leaflet + OpenStreetMap) =====
 let leafletP;
@@ -805,7 +805,7 @@ function tripDays(t) {
   if (t.start && t.end) for (let d = new Date(t.start + "T00:00"); d <= new Date(t.end + "T00:00") && out.length < 60; d.setDate(d.getDate() + 1)) out.push(d.toLocaleDateString("sv"));
   return out;
 }
-const dailyBudget = (t) => { const n = tripDays(t).length; return t.budget && n ? t.budget / n : 0; };
+const dailyBudget = (t) => { if (t.dbudget) return t.dbudget; const n = tripDays(t).length; return t.budget && n ? t.budget / n : 0; };
 
 // ===== 匯率走勢(fawazahmed0 currency-api, 免金鑰, 每日一筆) =====
 S.fxh ||= {};
@@ -1429,7 +1429,7 @@ function diaryHtml(t) {
   const days = diaryDays(t);
   if (!days.length) return `<div class="empty">到 ⚙︎ 設定旅程日期，就能每天寫日記</div>`;
   const startD = t.start ? new Date(t.start + "T00:00") : null;
-  return `<div class="row noprint" style="margin-bottom:8px"><span class="sp mut">每天寫幾句、放幾張照片，回來就是遊記</span><button class="sm" data-act="print">列印／存 PDF</button></div>
+  return `<div class="row noprint" style="margin-bottom:8px"><span class="sp mut">每天寫幾句、放幾張照片，回來就是遊記</span><label class="btn sm" style="margin:0">📷 照片自動分日<input type="file" accept="image/*" multiple id="diaryAuto" hidden></label><button class="sm" data-act="print">列印／存 PDF</button></div><div class="mut" id="diaryAutoSt"></div>
     <h2 class="printonly" style="display:none">${esc(t.name)} 旅行日記</h2>` +
     days.map((d) => {
       const e = t.diary.find((x) => x.date === d), n = startD ? Math.round((new Date(d + "T00:00") - startD) / 864e5) + 1 : null;
@@ -1610,7 +1610,8 @@ function calHtml(t) {
       <button class="sm" data-act="calprev" ${idx ? "" : "disabled"}>‹</button>
       <div class="chips" style="margin:0;flex:1">${days.map((x) => `<button class="${x === d ? "on" : ""}" data-f="cd" data-v="${x}">${x.slice(5)}(${dayName(x)})</button>`).join("")}</div>
       <button class="sm" data-act="calnext" ${idx < days.length - 1 ? "" : "disabled"}>›</button></div>
-    <div class="row" style="margin:4px 0 8px"><h3 class="sp" style="margin:0">${n > 0 ? `Day ${n}・` : ""}${d} (${dayName(d)})</h3><span class="wx">${wxTxt(wxOf(t, d))}</span></div>
+    <div class="row" style="margin:4px 0 8px"><h3 class="sp" style="margin:0">${n > 0 ? `Day ${n}・` : ""}${d} (${dayName(d)})</h3><span class="wx">${wxTxt(wxOf(t, d))}</span><button class="sm noprint" data-act="optday" title="依距離重排今天的順序與時間">🔀 排順序</button></div>
+    ${feeHtml(t, d)}${rainHtml(t, d)}
     ${present.length > 1 ? `<div class="chips noprint"><button class="${!filt.ic ? "on" : ""}" data-f="ic" data-v="">全部</button>${present.map(([c, ic]) => `<button class="${filt.ic === c ? "on" : ""}" data-f="ic" data-v="${c}"><span class="cdot c-${c}"></span>${ic} ${c}</button>`).join("")}</div>` : ""}`;
   for (const i of banners) { const k = spanDates(i.date, d).length, N = nights(i);
     h += `<div class="calban c-${icatOf(i)}" data-edit="itin:${i.id}">${icatIcon(icatOf(i))} <b>${esc(i.title)}</b><span class="mut">・${icatOf(i) === "住宿" ? `第 ${k} 晚／共 ${N} 晚` : `第 ${k} 天／共 ${N + 1} 天`}・${i.date.slice(5)}～${i.endDate.slice(5)}</span></div>`; }
@@ -1829,6 +1830,138 @@ function calScroll() {
   if (target) scrollTo({ top: Math.max(0, target.getBoundingClientRect().top + scrollY - 160) });
 }
 
+// ===== 今日模式: 下一站、幾分後出發、一鍵導航(用旅程當地時間) =====
+const tripNow = (t) => {
+  const o = t.loc && t.loc.tz ? { timeZone: t.loc.tz } : {}, n = new Date();
+  return { d: n.toLocaleDateString("sv", o), m: toMin(n.toLocaleTimeString("sv", { ...o, hour12: false }).slice(0, 5)) };
+};
+function nextStopHtml(t) {
+  const { d, m } = tripNow(t), seq = routeSeq(t, d).filter((v) => v.i.date === d || v.dest);
+  if (!seq.length) return "";
+  const cur = seq.find((v) => v.dest && v.s <= m && m < v.e && v.e > v.s), k = seq.findIndex((v) => v.dest && v.s > m);
+  let h = `<div class="card" id="nextStop" style="border-color:var(--acc)">`;
+  if (cur) h += `<div class="mut">現在</div><div class="row"><b class="sp">${icatIcon(icatOf(cur.i))} ${esc(cur.i.title)}</b><span class="mut">到 ${hm(cur.e)}</span></div>`;
+  if (k < 0) return h + `<div class="mut" style="margin-top:4px">今天的行程都結束了 🎉</div></div>`;
+  const nx = seq[k], pv = k ? seq[k - 1] : null, tv = pv ? travelMin(pv.o, nx.i) : null;
+  const leave = nx.s - (tv ? tv.m : 0), left = leave - m, mo = MODES.find((x) => x[0] === nx.i.mode);
+  const nav = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(geoQ(nx.i))}&travelmode=${mo ? mo[1] : "transit"}`;
+  h += `${cur ? '<hr style="border:0;border-top:1px solid var(--line);margin:8px 0">' : ""}<div class="mut">下一站 ${nx.i.time || hm(nx.s)}</div>
+    <div class="big" style="font-size:calc(20px*var(--fz,1))">${icatIcon(icatOf(nx.i))} ${esc(nx.i.title)}</div>
+    ${tv ? `<div class="mut">${mo ? esc(mo[0]) : "🚃"}・${tv.est ? "約 " : ""}${tv.m} 分${nx.i.how ? "・" + esc(nx.i.how) : ""}</div>` : ""}
+    <div class="row" style="margin-top:8px"><b class="sp" style="color:${left <= 0 ? "var(--red)" : left <= 15 ? "var(--warn)" : "inherit"}">${left <= 0 ? "⏰ 該出發了！" : `還有 ${left >= 60 ? Math.floor(left / 60) + " 小時 " : ""}${left % 60} 分出發（${hm(leave)}）`}</b>
+    <a class="btn pri" href="${nav}" target="_blank" rel="noopener" style="text-decoration:none">🧭 導航</a></div></div>`;
+  return h;
+}
+
+// ===== 自動排順序: 依距離(最近鄰 + 2-opt), 從當天出發的飯店開始, 時間依序重排 =====
+function optimizeDay(t, d) {
+  const mv = t.itin.filter((i) => i.date === d && i.time && !isMulti(i) && i.lat != null);
+  if (mv.length < 3) return alert("這天有定位的行程少於 3 個，不需要排（沒定位的請先到「地圖」按定位）");
+  const byT = (a, b) => toMin(a.time) - toMin(b.time), orig = [...mv].sort(byT);
+  const h0 = wakeHotel(t, d), p0 = h0 && h0.lat != null ? h0 : null;
+  const len = (o) => o.reduce((s, x, i) => s + (i ? distKm(o[i - 1], x) : p0 ? distKm(p0, x) : 0), 0);
+  const rest = [...orig], order = [];
+  let c = p0 || rest.shift(); if (!p0) order.push(c);
+  while (rest.length) { rest.sort((a, b) => distKm(c, a) - distKm(c, b)); c = rest.shift(); order.push(c); }
+  for (let pass = 0, better = true; better && pass < 50; pass++) {
+    better = false;
+    for (let i = p0 ? 0 : 1; i < order.length - 1; i++) for (let j = i + 1; j < order.length; j++) {
+      const n = [...order.slice(0, i), ...order.slice(i, j + 1).reverse(), ...order.slice(j + 1)];
+      if (len(n) < len(order) - 1e-6) { order.splice(0, order.length, ...n); better = true; }
+    }
+  }
+  const saved = len(orig) - len(order);
+  if (saved < 0.05) return toast("目前的順序已經很順了");
+  const old = mv.map((i) => [i, i.time, i.end, i.travel, i.how, i.ord]);
+  let cur = toMin(orig[0].time);
+  order.forEach((it, k) => {
+    const dur = it.end && toMin(it.end) > toMin(it.time) ? toMin(it.end) - toMin(it.time) : 60;
+    if (k && orig.indexOf(order[k - 1]) !== orig.indexOf(it) - 1) { it.travel = ""; it.how = ""; } // 前一站換了, 原本填的交通不適用
+    if (k) { const tv = travelMin(order[k - 1], it); cur += tv ? tv.m : 15; cur = Math.ceil(cur / 5) * 5; }
+    it.time = hm(cur); if (it.end) it.end = hm(cur + dur); cur += dur;
+    placeByTime(t, it);
+  });
+  save(); render();
+  toast(`已依距離重排，少走約 ${fmt(saved, 1)} km`, "復原", () => { old.forEach(([i, a, b, c, e, o]) => Object.assign(i, { time: a, end: b, travel: c, how: e, ord: o })); save(); render(); });
+}
+
+// ===== 下雨備案 =====
+const OUTDOOR = /公園|神社|寺|宮|海|山|展望|城|庭園|花|動物園|島|河|步道|海灘|夜景|屋台|park|beach|garden|shrine|temple/i;
+const INDOOR = /館|博物|美術|水族|百貨|商場|購物|モール|商店街|藥妝|ドン|唐吉|拉麵|ラーメン|咖啡|カフェ|餐|食|居酒屋|電影|室內|地下|博多站|天神|museum|mall|aquarium/i;
+function rainHtml(t, d) {
+  const w = wxOf(t, d); if (!w || w[3] == null || w[3] < 50) return "";
+  const out = t.itin.filter((i) => i.date === d && !isMulti(i) && icatOf(i) === "景點" && OUTDOOR.test(`${i.title} ${i.place || ""}`));
+  const alt = unsched(t).filter((s) => ["美食", "咖啡", "購物"].includes(s.cat) || INDOOR.test(`${s.name} ${s.addr || ""}`)).slice(0, 6);
+  return `<div class="card noprint" style="padding:8px 10px;border-color:var(--warn)"><b>☔ 降雨機率 ${w[3]}%，記得帶傘</b>
+    ${out.length ? `<div class="mut">可能受影響：${out.map((i) => esc(i.title)).join("、")}</div>` : ""}
+    ${alt.length ? `<div class="mut" style="margin-top:4px">室內備案（點了排進今天）：</div><div class="chips" style="margin:4px 0 0">${alt.map((s) => { const sl = freeSlot(t, d, s); return sl ? `<button class="sm" data-act="usadd" data-id="${s.id}" data-tm="${sl}">＋ ${esc(s.name)}</button>` : `<button class="sm" disabled>${esc(s.name)}</button>`; }).join("")}</div>` : `<div class="mut">待排景點裡沒有室內的，可以先收幾個購物、美食、博物館備用</div>`}</div>`;
+}
+
+// ===== 交通費: 把「怎麼去」裡的 ¥ 加總(每人) =====
+const yenOf = (s) => { const m = (s || "").match(/[¥￥]\s?([\d,]+)/); return m ? +m[1].replace(/,/g, "") : 0; };
+const feeNote = (d) => `交通費 ${d.slice(5)}`;
+function feeOf(t, d) { return routeSeq(t, d).filter((v) => v.dest).reduce((s, v) => s + yenOf(v.i.how), 0); }
+function feeHtml(t, d) {
+  const f = feeOf(t, d); if (!f) return "";
+  const done = t.exp.some((e) => e.note === feeNote(d));
+  return `<div class="row mut noprint" style="margin:-4px 0 8px"><span class="sp">🚃 交通費 ${t.cur === "JPY" ? "¥" : ""}${fmt(f)}${t.cur === "JPY" ? "" : " " + t.cur}／人${t.people.length > 1 ? `・${t.people.length} 人 ${fmt(f * t.people.length)}` : ""}</span>${done ? "✓ 已記帳" : `<button class="sm" data-act="feeexp" data-d="${d}">記帳</button>`}</div>`;
+}
+
+// ===== 照片自動分到日記(讀 EXIF 拍攝日期, 沒有就用檔案日期) =====
+async function exifDate(file) {
+  try {
+    const v = new DataView(await file.slice(0, 256 * 1024).arrayBuffer());
+    if (v.getUint16(0) !== 0xffd8) return null;
+    for (let p = 2; p < v.byteLength - 4;) {
+      const mk = v.getUint16(p), sz = v.getUint16(p + 2);
+      if (mk === 0xffe1 && v.getUint32(p + 4) === 0x45786966) {
+        const b = p + 10, le = v.getUint16(b) === 0x4949, u16 = (o) => v.getUint16(b + o, le), u32 = (o) => v.getUint32(b + o, le);
+        const str = (o) => { let s = ""; for (let i = 0; i < 19; i++) s += String.fromCharCode(v.getUint8(b + o + i)); return s; };
+        const find = (ifd, tag) => { const n = u16(ifd); for (let i = 0; i < n; i++) { const e = ifd + 2 + i * 12; if (u16(e) === tag) return e; } return -1; };
+        let e = find(u32(4), 0x8769), dt = null;
+        if (e >= 0) { const x = find(u32(e + 8), 0x9003); if (x >= 0) dt = str(u32(x + 8)); }
+        if (!dt) { const x = find(u32(4), 0x0132); if (x >= 0) dt = str(u32(x + 8)); }
+        return dt && /^\d{4}:\d\d:\d\d/.test(dt) ? dt.slice(0, 10).replace(/:/g, "-") : null;
+      }
+      if ((mk & 0xff00) !== 0xff00) break;
+      p += 2 + sz;
+    }
+  } catch (e) { }
+  return null;
+}
+async function diaryAuto(t, files) {
+  const days = diaryDays(t), st = $("#diaryAutoSt"); let ok = 0, skip = 0, n = 0;
+  for (const file of files) {
+    if (st) st.textContent = `處理中 ${++n}/${files.length}…`;
+    const d = (await exifDate(file)) || new Date(file.lastModified).toLocaleDateString("sv");
+    if (!days.includes(d)) { skip++; continue; }
+    let e = t.diary.find((x) => x.date === d); if (!e) { e = { id: uid(), date: d, text: "", photos: [] }; t.diary.push(e); }
+    e.photos.push(await storeFile(t, file)); ok++;
+  }
+  save(); render();
+  alert(`已放進日記 ${ok} 張` + (skip ? `\n${skip} 張的拍攝日期不在旅程期間，沒放` : ""));
+}
+
+// ===== 離線包: 票券/收據/照片從雲端抓回來、匯率天氣更新、地圖逐日預存 =====
+async function offlinePack(t) {
+  if (!navigator.onLine) return alert("要有網路才能下載離線包");
+  const ids = [...new Set([...JSON.stringify(t).matchAll(/"fileId":"([^"]+)"/g)].map((m) => m[1]))];
+  let have = 0, got = 0, miss = 0, n = 0;
+  for (const id of ids) {
+    toast(`📦 檔案 ${++n}/${ids.length}…`);
+    if (await fget(id)) { have++; continue; }
+    const b = window.TravelSync && TravelSync.user ? await TravelSync.getFile(t, id).catch(() => null) : null;
+    if (b) { await fput(id, b); got++; } else miss++;
+  }
+  loadRates(true); loadWx(t); loadLeaflet().catch(() => {});
+  const fileMsg = `檔案 ${ids.length} 個：本機已有 ${have}、剛下載 ${got}${miss ? `、找不到 ${miss}（可能在別台裝置、沒登入或太大沒同步）` : ""}`;
+  if (t.itin.some((i) => i.date) && confirm(fileMsg + "\n\n接著逐日預存地圖（約 " + Math.ceil(new Set(t.itin.map((i) => i.date)).size * 4 / 60 + 0.5) + " 分鐘，期間不要切換畫面）？")) {
+    S.tab = "itin"; filt.iv = "地圖"; render(); await new Promise((r) => setTimeout(r, 800));
+    return preMap(t);
+  }
+  alert(fileMsg);
+}
+
 // ===== 畫面 =====
 const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["books", "✈️", "訂位"], ["tickets", "🎫", "票券"], ["exp", "💰", "花費"], ["fx", "🧰", "工具"], ["pack", "📝", "清單"]];
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
@@ -1855,6 +1988,16 @@ const V = {
     const tkToday = t.tickets.filter((k) => k.date === today() && !k.used);
     let h = `<div class="card"><h3>${esc(t.name)}</h3><div class="mut">${t.start || "?"} ～ ${t.end || "?"}・${t.people.map(esc).join("、")}</div>
       ${days !== null ? `<div class="big" style="margin-top:6px">${days > 0 ? `倒數 ${days} 天` : days === 0 ? "今天出發！" : t.end && today() <= t.end ? `旅程第 ${1 - days} 天` : "已結束"}</div>` : `<div class="mut" style="margin-top:6px">到 ⚙︎ 設定日期</div>`}</div>`;
+    h += nextStopHtml(t);
+    const tn = tripNow(t).d, daily = dailyBudget(t);
+    if (daily && tripDays(t).includes(tn)) {
+      const td = t.exp.filter((e) => e.date === tn).reduce((s, e) => s + (toHome(e.amt, e.cur) || 0), 0), lf = daily - td, r = rate(t.home, t.cur);
+      h += `<div class="card"><div class="row"><span class="sp">今天還能花 <b style="font-size:calc(20px*var(--fz,1));${lf < 0 ? "color:var(--red)" : ""}">${fmt(lf)}</b> ${t.home}${r && t.cur !== t.home ? `<span class="mut">（≈ ${fmt(lf * r)} ${t.cur}）</span>` : ""}</span><span class="mut">已花 ${fmt(td)} / ${fmt(daily)}</span></div><div class="bar"><i style="width:${Math.min(100, (td / daily) * 100)}%;${lf < 0 ? "background:var(--red)" : ""}"></i></div></div>`;
+    }
+    for (const [d, lb] of [[tn, "今天"], [new Date(Date.parse(tn + "T12:00") + 864e5).toLocaleDateString("sv"), "明天"]]) {
+      const w = wxOf(t, d);
+      if (w && w[3] >= 50 && calDays(t).includes(d)) h += `<div class="card row" data-act="gocal" data-d="${d}" style="border-color:var(--warn)"><span class="sp">☔ ${lb}降雨機率 ${w[3]}%・看雨天備案</span><span class="mut">›</span></div>`;
+    }
     h += `<div class="grid2"><div class="card"><div class="mut">總花費 (${t.home})</div><div class="big">${fmt(total)}</div>${t.budget ? `<div class="bar"><i style="width:${Math.min(100, (total / t.budget) * 100)}%;${total > t.budget ? "background:var(--red)" : ""}"></i></div><div class="mut">預算 ${fmt(t.budget)}</div>` : ""}</div>
       <div class="card"><div class="mut">1 ${t.cur} =</div><div class="big">${fmt(rate(t.cur, t.home), 4)}</div><div class="mut">${t.home}${t.manualRate ? "（手動匯率）" : S.rates ? `・${ago(S.rates.ts)}更新` : ""}</div></div></div>`;
     h += `<div class="row" style="margin-bottom:10px"><button class="pri" data-act="quickexp" style="flex:1">＋ 記一筆</button><label class="btn" style="margin:0;flex:1;text-align:center">📷 拍收據<input type="file" accept="image/*" capture="environment" id="ocrIn" hidden></label></div>`;
@@ -1862,6 +2005,7 @@ const V = {
     if (!t.start || days > 0) {
       const cc = ccOf(t), P = PREP[cc] || (EU_CC.includes(cc) ? PREP.EU : null), total = (P ? P[0].length : 0) + PREP_ALL.length;
       const done = Object.keys(t.prep || {}).length;
+      if (days != null && days <= 7) h += `<div class="card row" data-act="offline"><span class="sp">📦 <b>出發前下載離線包</b><div class="mut">票券、收據、照片、地圖存到這台，在飛機上或沒網路也能看</div></span><span class="mut">›</span></div>`;
       h += `<div class="card row" data-act="gonotes"><span class="sp">✈️ <b>出發前準備・行前注意事項</b><div class="mut">入境手續、插座、交通卡、搭機與回台規定・已完成 ${Math.min(done, total)}/${total}</div></span><span class="mut">›</span></div>`;
     }
     const hasData = S.trips.some((x) => !isBlank(x));
@@ -2163,6 +2307,7 @@ function settle(t) {
 function render() {
   const t = T();
   $("#tripSel").innerHTML = S.trips.map((x) => `<option value="${x.id}" ${x.id === t.id ? "selected" : ""}>${esc(x.name)}</option>`).join("") + `<option value="__new">＋ 新增旅程</option>`;
+  if (!V[S.tab]) S.tab = "home";
   $("#nav").innerHTML = TABS.map(([k, ic, n]) => `<button data-tab="${k}" class="${S.tab === k ? "on" : ""}"><b>${ic}</b>${n}</button>`).join("");
   try { $("#view").innerHTML = V[S.tab](t); }
   catch (err) {
@@ -2175,6 +2320,7 @@ function render() {
   if ((S.tab === "tickets" && filt.tk === "優惠券") || (S.tab === "exp" && filt.ex === "收據整理") || (S.tab === "itin" && filt.iv === "日記") || (S.tab === "pack" && (filt.pk || "必買") === "必買")) fillThumbs();
   if (S.tab === "itin" && (filt.iv || "行事曆") === "行事曆") { calScroll(); gRouteDay(t, filt.cd); autoGeoDay(t, filt.cd); }
   if (S.tab === "itin" && filt.iv === "清單" && S.gkey) [...new Set(t.itin.map((i) => i.date))].forEach((d) => d && gRouteDay(t, d));
+  if ($("#diaryAuto")) $("#diaryAuto").onchange = (e) => { const fs = [...e.target.files]; if (fs.length) diaryAuto(T(), fs); };
   if ($("#ocrIn")) $("#ocrIn").onchange = (e) => { const f = e.target.files[0]; if (f) doOcr(f).catch((err) => alert("失敗：" + err.message)); };
   loadWx(t);
 }
@@ -2223,6 +2369,10 @@ document.addEventListener("click", async (e) => {
     else if (act === "premap") return preMap(t);
     else if (act === "calprev" || act === "calnext") { const ds = calDays(t), k = ds.indexOf(filt.cd) + (act === "calnext" ? 1 : -1); if (ds[k]) filt.cd = ds[k]; calScroll.done = null; return render(); }
     else if (act === "route") { const sq = routeSeq(t, filt.cd), k = +el.dataset.k; return sq[k] && showRoute(sq[k - 1].o, sq[k].i); }
+    else if (act === "optday") return optimizeDay(t, filt.cd);
+    else if (act === "feeexp") { const d = el.dataset.d, f = feeOf(t, d); return openForm("exp", null, null, { date: d, cat: "交通", amt: f * t.people.length, cur: t.cur, note: feeNote(d) }); }
+    else if (act === "gocal") { filt.iv = "行事曆"; filt.cd = el.dataset.d; return goTab("itin"); }
+    else if (act === "offline") { $("#dlg").open && $("#dlg").close(); return offlinePack(t); }
     else if (act === "usall") { filt.usall = !filt.usall; return render(); }
     else if (act === "usotog") { filt.uso = filt.uso === false; return render(); }
     else if (act === "usadd") {
@@ -2396,12 +2546,14 @@ function openSettings() {
     <div class="grid2"><div><label>當地幣別</label><select name="cur">${curOpt(t.cur)}</select></div><div><label>本國幣別</label><select name="home">${curOpt(t.home)}</select></div></div>
     <label>手動匯率（1 當地幣 = ? 本國幣，0 = 自動）</label><input type="number" step="any" name="manualRate" value="${t.manualRate || 0}">
     <label>預算（本國幣，0 = 不設）</label><input type="number" step="any" name="budget" value="${t.budget || 0}">
+    <label>每日預算（本國幣，0 = 總預算 ÷ 天數）</label><input type="number" step="any" name="dbudget" value="${t.dbudget || 0}">
     <label>同行者（逗號分隔，第一位是自己）</label><input name="people" value="${esc(t.people.join(","))}">
     ${syncSection()}
     ${window.TravelSync && TravelSync.user ? `<h3 style="margin-top:16px">共享這個旅程</h3><div class="mut">填旅伴註冊用的 Email（逗號分隔），對方登入後就能一起編輯${t.shared ? "・目前已共享" : ""}</div>
       <input name="share" type="text" inputmode="email" value="${esc((t.emails || []).filter((e) => e !== TravelSync.user.toLowerCase()).join(", "))}" placeholder="friend@gmail.com" style="margin-top:6px">` : ""}
     <h3 style="margin-top:16px">資料</h3>
     <div class="mut">資料存在這台裝置的瀏覽器。換手機或備份請用匯出/匯入（票券檔案不含在 JSON 內）。</div>
+    <div class="row" style="margin-top:6px"><button type="button" data-act="offline">📦 下載離線包</button><span class="mut sp">票券、照片、地圖存到這台，沒網路也能看</span></div>
     <div class="row" style="margin-top:6px"><button value="export" formnovalidate>匯出備份</button><label class="btn" style="margin:0;color:var(--fg)">匯入備份<input type="file" accept=".json" id="impFile" hidden></label></div>
     <h3 style="margin-top:16px">Google 路線（這台裝置）</h3>
     <label>金鑰（選填，填了交通時間改用 Google 計算）</label><input name="gkey" value="${esc(S.gkey || "")}" placeholder="AIza…" autocomplete="off">
@@ -2454,7 +2606,7 @@ function openSettings() {
     S.theme = fd.get("theme") || ""; S.fz = +fd.get("fz") || 1; S.mapc = fd.get("mapc") || ""; applyDisplay();
     t.name = fd.get("name").trim() || t.name; t.start = fd.get("start"); t.end = fd.get("end");
     t.cur = fd.get("cur"); t.home = fd.get("home");
-    t.manualRate = parseFloat(fd.get("manualRate")) || 0; t.budget = parseFloat(fd.get("budget")) || 0;
+    t.manualRate = parseFloat(fd.get("manualRate")) || 0; t.budget = parseFloat(fd.get("budget")) || 0; t.dbudget = parseFloat(fd.get("dbudget")) || 0;
     const ppl = fd.get("people").split(/[,，]/).map((s) => s.trim()).filter(Boolean);
     t.people = ppl.length ? [...new Set(ppl)] : ["我"];
     if (fd.has("share")) {
