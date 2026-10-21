@@ -1164,7 +1164,7 @@ function summary(t) {
   let km = 0; const byD = {}; t.itin.forEach((i) => (byD[i.date] ||= []).push(i));
   Object.values(byD).forEach((arr) => arr.sort(byOrd).forEach((x, n) => { if (n) km += distKm(arr[n - 1], x) || 0; }));
   const visited = t.spots.filter((s) => s.done).length;
-  const ws = diaryDays(t).map((d) => walkOf(t, d)).filter(Boolean), steps = ws.reduce((s, w) => s + w.steps, 0), walkEst = ws.some((w) => w.est);
+  const ws = diaryDays(t).filter((d) => d <= today() || t.diary.some((x) => x.date === d && +x.steps > 0)).map((d) => walkOf(t, d)).filter(Boolean), steps = ws.reduce((s, w) => s + w.steps, 0), walkEst = ws.some((w) => w.est);
   return {
     days, total, top, big, maxDay, km, visited, steps, walkEst, walkKm: ws.reduce((s, w) => s + w.km, 0),
     spots: t.spots.length, itin: t.itin.length,
@@ -1870,7 +1870,7 @@ const tripNow = (t) => {
   return { d: n.toLocaleDateString("sv", o), m: toMin(n.toLocaleTimeString("sv", { ...o, hourCycle: "h23" }).slice(0, 5)) };
 };
 function nextStopHtml(t) {
-  const { d, m } = tripNow(t), seq = routeSeq(t, d).filter((v) => v.i.date === d || v.dest);
+  const { d, m } = tripNow(t), seq = routeSeq(t, d);
   if (!seq.length) return "";
   const cur = seq.find((v) => v.dest && v.s <= m && m < v.e && v.e > v.s), k = seq.findIndex((v) => v.dest && v.s > m);
   let h = `<div class="card" id="nextStop" style="border-color:var(--acc)">`;
@@ -1906,7 +1906,7 @@ function optimizeDay(t, d) {
   }
   const saved = len(orig) - len(order);
   if (saved < 0.05) return toast("目前的順序已經很順了");
-  const old = mv.map((i) => [i, i.time, i.end, i.travel, i.how, i.ord]);
+  const old = t.itin.filter((i) => i.date === d).map((i) => [i, i.time, i.end, i.travel, i.how, i.ord]);
   let cur = toMin(orig[0].time);
   order.forEach((it, k) => {
     const dur = it.end && toMin(it.end) > toMin(it.time) ? toMin(it.end) - toMin(it.time) : 60;
@@ -1970,10 +1970,11 @@ async function diaryAuto(t, files) {
     const d = (await exifDate(file)) || new Date(file.lastModified).toLocaleDateString("sv");
     if (!days.includes(d)) { skip++; continue; }
     let e = t.diary.find((x) => x.date === d); if (!e) { e = { id: uid(), date: d, text: "", photos: [] }; t.diary.push(e); }
-    e.photos.push(await storeFile(t, file)); ok++;
+    try { e.photos.push(await storeFile(t, file)); ok++; } catch (err) { skip++; }
   }
   save(); render();
-  alert(`已放進日記 ${ok} 張` + (skip ? `\n${skip} 張的拍攝日期不在旅程期間，沒放` : ""));
+  if (st) st.textContent = "";
+  alert(`已放進日記 ${ok} 張` + (skip ? `\n${skip} 張沒放（拍攝日期不在旅程期間，或檔案無法讀取）` : ""));
 }
 
 // ===== 離線包: 票券/收據/照片從雲端抓回來、匯率天氣更新、地圖逐日預存 =====
@@ -2177,20 +2178,20 @@ function airportPlan(t, b) {
   const dlg = $("#dlg"), f = $("#dlgForm"); dlg.onclose = null;
   const p = b.ap || { early: 120, ride: 45, pack: 15 };
   const draw = () => {
-    const dep = toMin(b.start.slice(11, 16)), arrive = dep - p.early, leave = arrive - p.ride, out = leave - p.pack;
+    const dep = toMin(b.start.slice(11, 16)), arrive = dep - p.early, leave = arrive - p.ride, out = leave - p.pack, ap = (n) => hm(((n % 1440) + 1440) % 1440);
     const neg = out < 0 ? "（前一天）" : "";
     f.innerHTML = `<h3>⏱ ${esc(b.title)} 機場時間倒推</h3><div class="mut">起飛 ${dt(b.start)}${b.from ? "・" + esc(b.from) : ""}</div>
       <div class="grid2"><div><label>提早到機場（分）</label><input type="number" name="early" value="${p.early}"></div><div><label>到機場交通（分）</label><input type="number" name="ride" value="${p.ride}"></div></div>
       <label>退房、整理行李（分）</label><input type="number" name="pack" value="${p.pack}">
       <div class="card" style="margin-top:10px;font-size:calc(17px*var(--fz,1))">
-        <div>🧳 <b>${hm((out + 1440) % 1440)}</b> 退房${neg}</div><div>🚃 <b>${hm((leave + 1440) % 1440)}</b> 出發去機場</div><div>🛫 <b>${hm((arrive + 1440) % 1440)}</b> 抵達機場、報到</div><div>✈️ <b>${hm(dep)}</b> 起飛</div></div>
+        <div>🧳 <b>${ap(out)}</b> 退房${neg}</div><div>🚃 <b>${ap(leave)}</b> 出發去機場${leave < 0 ? "（前一天）" : ""}</div><div>🛫 <b>${ap(arrive)}</b> 抵達機場、報到${arrive < 0 ? "（前一天）" : ""}</div><div>✈️ <b>${hm(dep)}</b> 起飛</div></div>
       <div class="mut">國際線建議提早 2～3 小時；要退稅的話再多留 30 分鐘</div>
       <div class="row" style="margin-top:12px"><span class="sp"></span><button value="cancel">關閉</button><button type="button" class="pri" id="apAdd">加入行程</button></div>`;
     f.querySelectorAll("input").forEach((el) => (el.onchange = () => { p[el.name] = Math.max(0, +el.value || 0); b.ap = { ...p }; save(); draw(); }));
     $("#apAdd").onclick = () => {
-      const d = b.start.slice(0, 10), id = "ap_" + b.id;
+      const d = leave < 0 ? daysBefore(b.start.slice(0, 10), 1) : b.start.slice(0, 10), id = "ap_" + b.id;
       t.itin = t.itin.filter((x) => x.id !== id);
-      const it = { id, date: d, time: hm((leave + 1440) % 1440), end: hm((arrive + 1440) % 1440), title: `前往機場（${b.title}）`, cat: "交通", place: b.from || "", note: `${hm((out + 1440) % 1440)} 退房・${hm(arrive)} 報到・${hm(dep)} 起飛`, travel: "" };
+      const it = { id, date: d, time: ap(leave), end: ap(arrive), title: `前往機場（${b.title}）`, cat: "交通", place: b.from || "", note: `${ap(out)} 退房・${ap(arrive)} 報到・${hm(dep)} 起飛`, travel: "" };
       t.itin.push(it); placeByTime(t, it); save(); dlg.close(); render(); toast(`已加入 ${d.slice(5)} ${it.time} 前往機場`);
     };
   };
@@ -2322,7 +2323,7 @@ async function openAlbum(t, start) {
     const p = ps[i], n = startD ? Math.round((new Date(p.d + "T00:00") - startD) / 864e5) + 1 : null;
     $("#alCap").textContent = `${n > 0 ? `Day ${n}・` : ""}${p.d.slice(5)}（${dayName(p.d)}）　${i + 1} / ${ps.length}`;
     let u = urls[p.fileId];
-    if (!u) { let b = await fget(p.fileId); if (!b && window.TravelSync && TravelSync.user) { b = await TravelSync.getFile(t, p.fileId); if (b) await fput(p.fileId, b); } u = urls[p.fileId] = b ? URL.createObjectURL(b) : ""; }
+    if (!u) { let b = await fget(p.fileId); if (!b && window.TravelSync && TravelSync.user) { b = await TravelSync.getFile(t, p.fileId).catch(() => null); if (b) await fput(p.fileId, b); } u = urls[p.fileId] = b ? URL.createObjectURL(b) : ""; }
     if (ps[i] === p) $("#alImg").src = u;
   };
   const go = (k) => { i = (i + k + ps.length) % ps.length; show(); };
@@ -2342,7 +2343,7 @@ function loadHol(cc, y) {
   holBusy[k] = 1;
   fetch(`https://date.nager.at/api/v3/PublicHolidays/${y}/${cc}`).then((r) => r.json()).then((j) => {
     S.hol[k] = { ts: Date.now(), d: Object.fromEntries(j.map((x) => [x.date, x.localName + (x.localName !== x.name ? `（${x.name}）` : "")])) }; saveLocal(); if (!$("#dlg").open) render();
-  }).catch(() => {}).finally(() => delete holBusy[k]);
+  }).catch(() => { S.hol[k] = { ts: Date.now() - 27 * 864e5, d: {} }; }).finally(() => delete holBusy[k]); // 失敗: 3 天後再試
 }
 // [月日起, 月日迄, 名稱, 城市關鍵字(空=全國), 提醒]
 const FEST = {
@@ -2378,7 +2379,9 @@ function notify(title, body) {
   toast(`${title}：${body}`);
   if (!("Notification" in window) || Notification.permission !== "granted") return;
   const o = { body, icon: "icon-192.png", tag: title + body };
-  (navigator.serviceWorker ? navigator.serviceWorker.ready.then((r) => r.showNotification(title, o)) : Promise.reject()).catch(() => { try { new Notification(title, o); } catch (e) { } });
+  const nb = () => { try { new Notification(title, o); } catch (e) { } };
+  if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return nb();
+  Promise.race([navigator.serviceWorker.ready, new Promise((_, r) => setTimeout(r, 2000))]).then((r) => r.showNotification(title, o)).catch(nb);
 }
 
 // ===== 天氣警示(依預報推算: 強風、大雨、大雪、酷熱、嚴寒) =====
@@ -2411,14 +2414,15 @@ const EQS = { 10: "1", 20: "2", 30: "3", 40: "4", 45: "5弱", 50: "5強", 55: "6
 function loadEq(force) {
   if (!force && Date.now() - eqTs < 5 * 60e3) return; eqTs = Date.now();
   fetch("https://api.p2pquake.net/v2/history?codes=551&codes=552&limit=30").then((r) => r.json()).then((j) => {
-    eqList = j; const t = T();
+    const t = T(), before = eqRelevant(t).map((q) => q.id).join();
+    if (!Array.isArray(j)) return; eqList = j;
     for (const q of eqRelevant(t)) if (!(S.eqSeen ||= []).includes(q.id)) { S.eqSeen.push(q.id); S.eqSeen = S.eqSeen.slice(-50); saveLocal(); notify(q.code === 552 ? "🌊 海嘯資訊" : "🌏 地震", eqLine(t, q)); }
-    if (!$("#dlg").open) render();
+    if (eqRelevant(t).map((q) => q.id).join() !== before && !$("#dlg").open && !calDrag.on) render();
   }).catch(() => {});
 }
 const eqTime = (q) => new Date(((q.earthquake && q.earthquake.time) || q.time).replace(/\//g, "-").replace(" ", "T").slice(0, 19) + "+09:00");
 function eqRelevant(t, hours = 24) {
-  if (!eqList || ccOf(t) !== "JP" || !t.loc) return [];
+  if (!Array.isArray(eqList) || ccOf(t) !== "JP" || !t.loc) return [];
   return eqList.filter((q) => {
     if (Date.now() - eqTime(q) > hours * 3600e3) return false;
     if (q.code === 552) return !q.cancelled && (q.areas || []).length;
@@ -2447,7 +2451,7 @@ function closeCheck(t) {
   for (const i of t.itin.filter((x) => x.date === d && x.time && !isMulti(x))) {
     const sp = (i.spotId && t.spots.find((s) => s.id === i.spotId)) || t.spots.find((s) => s.name === i.title), h = parseHours(i.hours || (sp && sp.hours));
     if (!h || h.close == null || h.close - h.open >= 1440) continue;
-    const s = toMin(i.time), e = toMin(i.end) || s + 60, left = h.close - m;
+    const s = toMin(i.time), left = h.close - m; let e = toMin(i.end); if (e == null || e <= s) e = e != null && e < s ? e + 1440 : s + 60;
     if (m >= s - 30 && m < e && left > 0 && left <= 30 && !closeSent.has(i.id + d)) { closeSent.add(i.id + d); notify("⏰ 快打烊", `${i.title} ${hm(h.close)} 打烊（還有 ${left} 分）`); }
   }
 }
@@ -2906,7 +2910,7 @@ function render() {
   if (S.tab === "itin" && (filt.iv || "行事曆") === "行事曆") { calScroll(); gRouteDay(t, filt.cd); autoGeoDay(t, filt.cd); }
   if (S.tab === "itin" && filt.iv === "清單" && S.gkey) [...new Set(t.itin.map((i) => i.date))].forEach((d) => d && gRouteDay(t, d));
   if ($("#ckIn")) $("#ckIn").onchange = (e) => { const f = e.target.files[0]; if (f) checkin(T(), f).catch((err) => alert("打卡失敗：" + err.message)); };
-  if ($("#diaryAuto")) $("#diaryAuto").onchange = (e) => { const fs = [...e.target.files]; if (fs.length) diaryAuto(T(), fs); };
+  if ($("#diaryAuto")) $("#diaryAuto").onchange = (e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) diaryAuto(T(), fs); };
   if ($("#ocrIn")) $("#ocrIn").onchange = (e) => { const f = e.target.files[0]; if (f) doOcr(f).catch((err) => alert("失敗：" + err.message)); };
   loadWx(t);
 }
@@ -2968,7 +2972,7 @@ document.addEventListener("click", async (e) => {
     else if (act === "ecard") return showECard(t, el.dataset.m);
     else if (act === "voiceexp") return voiceExp(t);
     else if (act === "optday") return optimizeDay(t, filt.cd);
-    else if (act === "feeexp") { const d = el.dataset.d, f = feeOf(t, d); return openForm("exp", null, null, { date: d, cat: "交通", amt: f * t.people.length, cur: t.cur, note: feeNote(d), ...(t.tcard.length ? { pay: "交通卡" } : {}) }); }
+    else if (act === "feeexp") { const d = el.dataset.d, f = feeOf(t, d); return openForm("exp", null, null, { date: d, cat: "交通", amt: f * t.people.length, cur: t.cur === "CNY" ? "CNY" : "JPY", note: feeNote(d), ...(t.tcard.length ? { pay: "交通卡" } : {}) }); }
     else if (act === "gocal") { filt.iv = "行事曆"; filt.cd = el.dataset.d; return goTab("itin"); }
     else if (act === "offline") { $("#dlg").open && $("#dlg").close(); return offlinePack(t); }
     else if (act === "usall") { filt.usall = !filt.usall; return render(); }
