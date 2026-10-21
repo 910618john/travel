@@ -463,7 +463,7 @@ function tzOff(tz) {
     return m ? (m[1] === "-" ? -1 : 1) * (+m[2] + (+m[3] || 0) / 60) : 0;
   } catch (e) { return 0; }
 }
-const clk = (tz) => new Date().toLocaleTimeString("zh-TW", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false });
+const clk = (tz) => new Date().toLocaleTimeString("zh-TW", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 function clockHtml(t) {
   if (!t.loc) return `<div class="mut">到 ⚙︎ 設定目的地城市，就會顯示當地時間和天氣</div>`;
   const d = tzOff(t.loc.tz) - tzOff("Asia/Taipei");
@@ -1164,8 +1164,9 @@ function summary(t) {
   let km = 0; const byD = {}; t.itin.forEach((i) => (byD[i.date] ||= []).push(i));
   Object.values(byD).forEach((arr) => arr.sort(byOrd).forEach((x, n) => { if (n) km += distKm(arr[n - 1], x) || 0; }));
   const visited = t.spots.filter((s) => s.done).length;
+  const ws = diaryDays(t).map((d) => walkOf(t, d)).filter(Boolean), steps = ws.reduce((s, w) => s + w.steps, 0), walkEst = ws.some((w) => w.est);
   return {
-    days, total, top, big, maxDay, km, visited,
+    days, total, top, big, maxDay, km, visited, steps, walkEst, walkKm: ws.reduce((s, w) => s + w.km, 0),
     spots: t.spots.length, itin: t.itin.length,
     bought: t.shop.filter((x) => x.ok).length, shop: t.shop.length,
     tkUsed: t.tickets.filter((k) => k.used).length,
@@ -1182,6 +1183,7 @@ function summaryText(t) {
     m.maxDay ? `📅 最燒錢的一天：${m.maxDay[0]} ${fmt(m.maxDay[1])} ${H}` : "",
     m.spots ? `📍 景點去了 ${m.visited}/${m.spots} 個` : "",
     m.itin ? `🗓 行程 ${m.itin} 個${m.km ? `，移動約 ${fmt(m.km, 1)} km（直線）` : ""}` : "",
+    m.steps ? `👣 走了${m.walkEst ? "約" : ""} ${fmt(m.steps)} 步（${fmt(m.walkKm, 1)} km）` : "",
     m.shop ? `🛍 必買清單買了 ${m.bought}/${m.shop}` : "",
     m.tkUsed ? `🎫 用了 ${m.tkUsed} 張票券` : "",
   ].filter((x) => x !== "").join("\n");
@@ -1195,6 +1197,7 @@ function showSummary(t) {
       ${stat("天數", m.days, t.people.length > 1 ? `${t.people.length} 人・每人 ${fmt(m.perPerson)}` : "")}
       ${stat("景點", `${m.visited}/${m.spots}`, "去過／收藏")}
       ${stat("移動距離", m.km ? fmt(m.km, 1) + " km" : "—", "行程點之間直線")}
+      ${m.steps ? stat("走路", `${m.walkEst ? "約 " : ""}${fmt(m.steps)} 步`, `${fmt(m.walkKm, 1)} km${m.walkEst ? "・含估算" : ""}`) : ""}
     </div>
     ${m.top.length ? `<h3 style="margin-top:12px">花最多</h3><table>${m.top.map(([c, v]) => `<tr><td>${esc(c)}</td><td class="r">${fmt(v)} ${t.home}</td><td class="r mut">${fmt((v / m.total) * 100)}%</td></tr>`).join("")}</table>` : ""}
     ${m.big ? `<div style="margin-top:8px">💸 最大一筆：<b>${esc(m.big.note || m.big.cat)}</b> ${fmt(m.big.amt, 2)} ${m.big.cur}</div>` : ""}
@@ -1429,18 +1432,41 @@ function diaryDays(t) {
   const set = new Set([...tripDays(t), ...t.itin.map((i) => i.date), ...t.diary.map((d) => d.date)].filter(Boolean));
   return [...set].sort();
 }
+// ===== 走路: 手機的計步資料網頁讀不到 → 自己填(看健康 App), 沒填就依行程估算 =====
+const STEP_KM = 1350; // 每公里約幾步
+function walkKm(t, d) {
+  const seq = routeSeq(t, d); let km = 0;
+  for (let k = 0; k < seq.length; k++) {
+    const i = seq[k].i, c = icatOf(i);
+    if (seq[k].dest && !isMulti(i)) km += { 景點: 1.2, 購物: 1.5, 美食: 0.2, 交通: 0.3 }[c] ?? 0.5; // 在點內走動
+    if (!k || !seq[k].dest) continue;
+    const a = seq[k - 1].o, tv = travelMin(a, i), mode = routeMode(i);
+    if (mode === "walking") km += tv && tv.g && i.gtravel.km ? i.gtravel.km : (distKm(a, i) || 0) * 1.3;
+    else if (tv && tv.steps && tv.steps.length) km += tv.steps.filter((x) => x.w).reduce((s, x) => s + x.min, 0) * 4.5 / 60;
+    else if (mode === "transit") km += Math.min(1, (distKm(a, i) || 0) * 1.3) || 0.6; // 走到車站、出站
+  }
+  return km;
+}
+function walkOf(t, d) {
+  const e = t.diary.find((x) => x.date === d);
+  if (e && +e.steps > 0) return { steps: +e.steps, km: +e.steps / STEP_KM, est: false };
+  const km = walkKm(t, d); return km ? { steps: Math.round((km * STEP_KM) / 100) * 100, km, est: true } : null;
+}
+const walkTxt = (w) => w ? `👣 ${w.est ? "約 " : ""}${fmt(w.steps)} 步・${fmt(w.km, 1)} km${w.est ? "（依行程估算）" : ""}` : "";
 function diaryHtml(t) {
   const days = diaryDays(t);
   if (!days.length) return `<div class="empty">到 ⚙︎ 設定旅程日期，就能每天寫日記</div>`;
   const startD = t.start ? new Date(t.start + "T00:00") : null;
-  return `<div class="row noprint" style="margin-bottom:8px"><span class="sp mut">每天寫幾句、放幾張照片，回來就是遊記</span><button class="sm" data-act="album">🖼 相簿</button><button class="sm" data-act="video">🎬 影片</button><label class="btn sm" style="margin:0">📷 照片自動分日<input type="file" accept="image/*" multiple id="diaryAuto" hidden></label><button class="sm" data-act="print">列印／存 PDF</button></div><div class="mut" id="diaryAutoSt"></div>
+  const ws = days.map((d) => walkOf(t, d)).filter(Boolean), wsum = ws.reduce((s, w) => s + w.steps, 0);
+  return `<div class="row noprint" style="margin-bottom:8px"><span class="sp mut">${wsum ? `整趟 👣 ${ws.some((w) => w.est) ? "約 " : ""}${fmt(wsum)} 步・${fmt(ws.reduce((s, w) => s + w.km, 0), 1)} km` : "每天寫幾句、放幾張照片，回來就是遊記"}</span><button class="sm" data-act="album">🖼 相簿</button><button class="sm" data-act="video">🎬 影片</button><label class="btn sm" style="margin:0">📷 照片自動分日<input type="file" accept="image/*" multiple id="diaryAuto" hidden></label><button class="sm" data-act="print">列印／存 PDF</button></div><div class="mut" id="diaryAutoSt"></div>
     <h2 class="printonly" style="display:none">${esc(t.name)} 旅行日記</h2>` +
     days.map((d) => {
       const e = t.diary.find((x) => x.date === d), n = startD ? Math.round((new Date(d + "T00:00") - startD) / 864e5) + 1 : null;
       const its = t.itin.filter((i) => i.date === d).sort(byOrd).map((i) => i.title);
-      const spent = t.exp.filter((x) => x.date === d).reduce((s, x) => s + (toHome(x.amt, x.cur) || 0), 0);
+      const spent = t.exp.filter((x) => x.date === d).reduce((s, x) => s + (toHome(x.amt, x.cur) || 0), 0), wk = walkOf(t, d);
       return `<div class="card" style="break-inside:avoid"><div class="row"><h3 class="sp">${n > 0 ? `Day ${n}・` : ""}${d} (${dayName(d)})</h3><span class="wx">${wxTxt(wxOf(t, d))}</span><button class="sm noprint" data-act="diary" data-d="${d}">✏️ ${e ? "編輯" : "寫日記"}</button></div>
         ${its.length || spent ? `<div class="mut">${its.length ? "📍 " + its.map(esc).join(" → ") : ""}${spent ? `${its.length ? "<br>" : ""}💰 ${fmt(spent)} ${t.home}` : ""}</div>` : ""}
+        ${wk ? `<div class="mut">${walkTxt(wk)}</div>` : ""}
         ${e && e.text ? `<div style="white-space:pre-wrap;margin-top:6px">${esc(e.text)}</div>` : ""}
         ${e && e.photos.length ? `<div class="photos">${e.photos.map((p) => `<img data-fid="${p.fileId}" alt="">`).join("")}</div>` : ""}</div>`;
     }).join("");
@@ -1449,15 +1475,17 @@ function openDiary(t, d) {
   let e = t.diary.find((x) => x.date === d);
   const photos = e ? [...e.photos] : [];
   const dlg = $("#dlg"), f = $("#dlgForm");
-  let text = e ? e.text : "";
+  let text = e ? e.text : "", steps = e ? e.steps : "";
   const draw = () => {
     f.innerHTML = `<h3>📔 ${d} (${dayName(d)})</h3>
       <textarea name="text" style="min-height:160px" placeholder="今天去了哪、吃了什麼、印象最深的事…">${esc(text)}</textarea>
+      <label>今天走了幾步（看 iPhone「健康」或手錶，選填）</label><input type="number" name="steps" min="0" value="${steps || ""}" placeholder="${(() => { const w = walkKm(t, d); return w ? "沒填就用行程估算：約 " + fmt(Math.round(w * STEP_KM / 100) * 100) + " 步" : "例：15000"; })()}">
       <label>照片（可一次選多張）</label><input type="file" name="ph" accept="image/*" multiple>
       <div class="photos">${photos.map((p, i) => `<div style="position:relative"><img data-fid="${p.fileId}" alt=""><button type="button" class="sm del" data-rmph="${i}" style="position:absolute;top:2px;right:2px;padding:0 6px">✕</button></div>`).join("")}</div>
       <div class="row" style="margin-top:14px">${e ? '<button value="del" class="del">刪除</button>' : ""}<span class="sp"></span><button value="cancel" formnovalidate>取消</button><button value="ok" class="pri">儲存</button></div>`;
     fillThumbs();
     f.elements.text.oninput = (ev) => (text = ev.target.value);
+    f.elements.steps.oninput = (ev) => (steps = ev.target.value);
     f.querySelectorAll("[data-rmph]").forEach((b) => (b.onclick = () => { photos.splice(+b.dataset.rmph, 1); draw(); }));
     f.elements.ph.onchange = async (ev) => {
       for (const file of ev.target.files) photos.push(await storeFile(t, file));
@@ -1474,7 +1502,7 @@ function openDiary(t, d) {
     const text = (new FormData(f).get("text") || "").trim();
     drop(photos);
     if (!e) { e = { id: uid(), date: d }; t.diary.push(e); }
-    e.text = text; e.photos = photos;
+    e.text = text; e.photos = photos; e.steps = Math.max(0, Math.round(+steps || 0)) || "";
     save(); render();
   };
   dlg.showModal();
@@ -1839,7 +1867,7 @@ function calScroll() {
 const daysBefore = (d, n) => new Date(Date.parse(d + "T12:00") - n * 864e5).toLocaleDateString("sv");
 const tripNow = (t) => {
   const o = t.loc && t.loc.tz ? { timeZone: t.loc.tz } : {}, n = new Date();
-  return { d: n.toLocaleDateString("sv", o), m: toMin(n.toLocaleTimeString("sv", { ...o, hour12: false }).slice(0, 5)) };
+  return { d: n.toLocaleDateString("sv", o), m: toMin(n.toLocaleTimeString("sv", { ...o, hourCycle: "h23" }).slice(0, 5)) };
 };
 function nextStopHtml(t) {
   const { d, m } = tripNow(t), seq = routeSeq(t, d).filter((v) => v.i.date === d || v.dest);
