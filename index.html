@@ -1962,6 +1962,85 @@ async function offlinePack(t) {
   alert(fileMsg);
 }
 
+// ===== 緊急卡: 大字給司機/醫護看; 個人醫療資料只存在這台裝置 =====
+const ECARD = {
+  JP: { go: "ここへ行ってください", h: "宿泊先", name: "氏名", blood: "血液型", allergy: "アレルギー", cond: "持病", meds: "服用中の薬", contact: "緊急連絡先", ins: "海外旅行保険", help: "助けてください。日本語が話せません。" },
+  KR: { go: "여기로 가 주세요", h: "숙소", name: "이름", blood: "혈액형", allergy: "알레르기", cond: "지병", meds: "복용 중인 약", contact: "긴급 연락처", ins: "여행자 보험", help: "도와주세요. 한국어를 못해요." },
+  TH: { go: "กรุณาพาไปที่นี่", h: "ที่พัก", name: "ชื่อ", blood: "กรุ๊ปเลือด", allergy: "แพ้", cond: "โรคประจำตัว", meds: "ยาที่ใช้", contact: "ผู้ติดต่อฉุกเฉิน", ins: "ประกันการเดินทาง", help: "ช่วยด้วย ฉันพูดภาษาไทยไม่ได้" },
+  EN: { go: "Please take me here", h: "Hotel", name: "Name", blood: "Blood type", allergy: "Allergies", cond: "Medical conditions", meds: "Medications", contact: "Emergency contact", ins: "Travel insurance", help: "Please help me. I don't speak the local language." },
+};
+const ME_F = [["name", "姓名（護照英文）"], ["blood", "血型"], ["allergy", "過敏（食物、藥物）"], ["cond", "病史／慢性病"], ["meds", "正在吃的藥"], ["contact", "緊急聯絡人（姓名＋電話）"], ["ins", "旅平險公司＋保單號＋救援電話"]];
+function showECard(t, mode) {
+  const L = ECARD[ccOf(t)] || ECARD.EN, me = S.me || {}, dlg = $("#dlg"); dlg.onclose = null;
+  const h = sleepHotel(t, tripNow(t).d) || wakeHotel(t, tripNow(t).d) || hotels(t)[0];
+  const addr = h ? (h.from && !isUrl(h.from) ? h.from : "") : "";
+  const row = (k, zh) => me[k] ? `<div style="margin:8px 0"><div class="mut">${esc(L[k])}（${zh}）</div><div style="font-size:calc(22px*var(--fz,1));font-weight:700;white-space:pre-wrap">${esc(me[k])}</div></div>` : "";
+  let body;
+  if (mode === "med") {
+    const filled = ME_F.some(([k]) => me[k]);
+    body = `<div class="huge" style="font-size:calc(22px*var(--fz,1))">🏥 ${esc(L.help)}</div>${filled ? ME_F.map(([k, zh]) => row(k, zh.replace(/（.*/, ""))).join("") : '<div class="mut" style="margin:12px 0">還沒填醫療資料，按「編輯資料」填一次，之後每趟都能用</div>'}`;
+  } else {
+    body = h ? `<div class="mut" style="text-align:center">${esc(L.go)}（請載我到這裡）</div><div class="huge" style="font-size:calc(30px*var(--fz,1))">${esc(h.title)}</div>${addr ? `<div style="text-align:center;font-size:calc(22px*var(--fz,1));font-weight:700;margin:8px 0;user-select:all">${esc(addr)}</div>` : ""}
+      ${h.tel ? `<div style="text-align:center">${telLink(h.tel)}</div>` : ""}<div style="text-align:center;margin-top:8px"><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(geoQ(hotelPt(h)))}" target="_blank" rel="noopener">在地圖上看 ↗</a></div>`
+      : `<div class="mut" style="margin:12px 0">還沒有住宿資料：在行程或訂位新增住宿（地點填地址）就會出現在這裡</div>`;
+  }
+  $("#dlgForm").innerHTML = `<div class="chips"><button type="button" class="${mode !== "med" ? "on" : ""}" id="ecTaxi">🚕 給司機看</button><button type="button" class="${mode === "med" ? "on" : ""}" id="ecMed">🏥 醫療資訊</button></div>${body}
+    <div class="row" style="margin-top:14px"><button type="button" id="ecEdit">✎ 編輯資料</button><span class="sp"></span><button value="cancel" class="pri">關閉</button></div>`;
+  $("#ecTaxi").onclick = () => showECard(t, "taxi"); $("#ecMed").onclick = () => showECard(t, "med");
+  $("#ecEdit").onclick = () => editMe(t);
+  if (!dlg.open) dlg.showModal();
+}
+function editMe(t) {
+  const me = S.me || {}, f = $("#dlgForm");
+  f.innerHTML = `<h3>🆘 緊急卡資料</h3><div class="mut">只存在這台裝置，不會同步到雲端。飯店地址會自動用當晚的住宿。</div>
+    ${ME_F.map(([k, lab]) => `<label>${lab}</label>${k === "contact" || k === "ins" || k === "meds" ? `<textarea name="${k}">${esc(me[k] || "")}</textarea>` : `<input name="${k}" value="${esc(me[k] || "")}">`}`).join("")}
+    <div class="row" style="margin-top:14px"><span class="sp"></span><button type="button" id="meCancel">取消</button><button type="button" class="pri" id="meSave">儲存</button></div>`;
+  $("#meCancel").onclick = () => showECard(t, "med");
+  $("#meSave").onclick = () => { const fd = new FormData(f); S.me = Object.fromEntries(ME_F.map(([k]) => [k, (fd.get(k) || "").trim()])); saveLocal(); showECard(t, "med"); };
+}
+
+// ===== 語音記帳: 說「拉麵 980 円」 =====
+function cnNum(s) {
+  const D = { 零: 0, 一: 1, 二: 2, 兩: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 }, U = { 十: 10, 百: 100, 千: 1000 };
+  let total = 0, sec = 0, n = 0, last = 1;
+  for (const c of s) {
+    if (c in D) n = D[c];
+    else if (c in U) { sec += (n || (c === "十" ? 1 : 0)) * U[c]; last = U[c]; n = 0; }
+    else if (c === "萬") { total += (sec + n) * 1e4; sec = 0; n = 0; last = 1e4; }
+  }
+  if (n && last >= 100 && s.length > 1 && /[百千萬]$/.test(s.slice(0, -1))) n *= last / 10; // 一千二 = 1200
+  return total + sec + n;
+}
+const VCUR = [[/円|日圓|日幣|日元|yen/i, "JPY"], [/台幣|新台幣|塊/, "TWD"], [/韓元|韓幣|원/, "KRW"], [/美金|美元|dollar/i, "USD"], [/泰銖|銖/, "THB"], [/歐元|euro/i, "EUR"], [/港幣/, "HKD"], [/人民幣/, "CNY"]];
+const VCAT = [[/車|地鐵|電車|巴士|公車|計程車|taxi|JR|新幹線|交通|票價/i, "交通"], [/伴手禮|土產|お土産|名產/, "伴手禮"], [/門票|入場|門票|纜車/, "門票"], [/藥妝|衣服|鞋|唐吉|ドン|超市|便利商店|買|購物/, "購物"], [/住宿|飯店|旅館/, "住宿"], [/網卡|sim|漫遊/i, "通訊"]];
+function parseSpoken(txt, t) {
+  let s = txt.replace(/\s+/g, " ").trim(), amt = 0, cur = t.cur;
+  for (const [re, c] of VCUR) if (re.test(s)) { cur = c; s = s.replace(re, " "); break; }
+  if (/元/.test(s) && cur === t.cur && t.cur !== "TWD" && /台幣/.test(txt)) cur = "TWD";
+  s = s.replace(/元/g, " ");
+  const m = s.match(/\d[\d,.]*/) ;
+  if (m) { amt = parseFloat(m[0].replace(/,/g, "")); s = s.replace(m[0], " "); }
+  else { const c = s.match(/[零一二兩三四五六七八九十百千萬]{2,}|[一二兩三四五六七八九十][百千萬十]/); if (c) { amt = cnNum(c[0]); s = s.replace(c[0], " "); } }
+  const note = s.replace(/[，,。.、]/g, " ").replace(/\s+/g, " ").trim();
+  const cat = (VCAT.find(([re]) => re.test(note)) || [, "餐飲"])[1];
+  return { amt, cur, note, cat };
+}
+function voiceExp(t) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { alert("這個瀏覽器不支援語音辨識。可以按「＋ 記一筆」，用鍵盤上的 🎤 麥克風說"); return openForm("exp"); }
+  const r = new SR(); r.lang = "zh-TW"; r.interimResults = false; r.maxAlternatives = 1;
+  toast("🎤 請說，例如「拉麵 980 円」");
+  r.onresult = (e) => {
+    const txt = e.results[0][0].transcript, p = parseSpoken(txt, t);
+    if (!p.amt) return openForm("exp", null, null, { note: p.note || txt, cur: p.cur, cat: p.cat });
+    const x = { ...DEFAULTS.exp(), id: uid(), note: p.note, amt: p.amt, cur: p.cur, cat: p.cat };
+    t.exp.push(x); save(); render();
+    toast(`已記：${p.note || p.cat} ${fmt(p.amt)} ${p.cur}（${p.cat}）`, "復原", () => { t.exp = t.exp.filter((y) => y !== x); save(); render(); });
+  };
+  r.onerror = (e) => toast(e.error === "not-allowed" ? "麥克風沒有權限：請到瀏覽器設定允許" : e.error === "no-speech" ? "沒聽到聲音，再按一次 🎤" : "語音辨識失敗：" + e.error);
+  r.start();
+}
+
 // ===== 畫面 =====
 const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["books", "✈️", "訂位"], ["tickets", "🎫", "票券"], ["exp", "💰", "花費"], ["fx", "🧰", "工具"], ["pack", "📝", "清單"]];
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
@@ -1989,6 +2068,7 @@ const V = {
     let h = `<div class="card"><h3>${esc(t.name)}</h3><div class="mut">${t.start || "?"} ～ ${t.end || "?"}・${t.people.map(esc).join("、")}</div>
       ${days !== null ? `<div class="big" style="margin-top:6px">${days > 0 ? `倒數 ${days} 天` : days === 0 ? "今天出發！" : t.end && today() <= t.end ? `旅程第 ${1 - days} 天` : "已結束"}</div>` : `<div class="mut" style="margin-top:6px">到 ⚙︎ 設定日期</div>`}</div>`;
     h += nextStopHtml(t);
+    if (t.start && t.end && today() >= t.start && today() <= t.end) h += `<div class="row" style="margin-bottom:10px"><button data-act="ecard" data-m="taxi" style="flex:1">🚕 回飯店</button><button data-act="ecard" data-m="med" style="flex:1">🆘 緊急卡</button></div>`;
     const tn = tripNow(t).d, daily = dailyBudget(t);
     if (daily && tripDays(t).includes(tn)) {
       const td = t.exp.filter((e) => e.date === tn).reduce((s, e) => s + (toHome(e.amt, e.cur) || 0), 0), lf = daily - td, r = rate(t.home, t.cur);
@@ -2000,7 +2080,7 @@ const V = {
     }
     h += `<div class="grid2"><div class="card"><div class="mut">總花費 (${t.home})</div><div class="big">${fmt(total)}</div>${t.budget ? `<div class="bar"><i style="width:${Math.min(100, (total / t.budget) * 100)}%;${total > t.budget ? "background:var(--red)" : ""}"></i></div><div class="mut">預算 ${fmt(t.budget)}</div>` : ""}</div>
       <div class="card"><div class="mut">1 ${t.cur} =</div><div class="big">${fmt(rate(t.cur, t.home), 4)}</div><div class="mut">${t.home}${t.manualRate ? "（手動匯率）" : S.rates ? `・${ago(S.rates.ts)}更新` : ""}</div></div></div>`;
-    h += `<div class="row" style="margin-bottom:10px"><button class="pri" data-act="quickexp" style="flex:1">＋ 記一筆</button><label class="btn" style="margin:0;flex:1;text-align:center">📷 拍收據<input type="file" accept="image/*" capture="environment" id="ocrIn" hidden></label></div>`;
+    h += `<div class="row" style="margin-bottom:10px"><button class="pri" data-act="quickexp" style="flex:1">＋ 記一筆</button><button data-act="voiceexp" title="語音記帳">🎤</button><label class="btn" style="margin:0;flex:1;text-align:center">📷 拍收據<input type="file" accept="image/*" capture="environment" id="ocrIn" hidden></label></div>`;
     const ended = t.end && today() > t.end;
     if (!t.start || days > 0) {
       const cc = ccOf(t), P = PREP[cc] || (EU_CC.includes(cc) ? PREP.EU : null), total = (P ? P[0].length : 0) + PREP_ALL.length;
@@ -2092,7 +2172,7 @@ const V = {
     const sub = filt.ex || "記帳";
     const head = `<div class="chips noprint">${["記帳", "收據整理"].map((x) => `<button class="${x === sub ? "on" : ""}" data-f="ex" data-v="${x}">${x === "記帳" ? "💰" : "🧾"} ${x}</button>`).join("")}</div>`;
     if (sub === "收據整理") return head + receiptsHtml(t);
-    let h = head + `<div class="row" style="margin-bottom:8px"><label class="btn pri" style="margin:0;color:#fff">📷 拍收據記帳<input type="file" accept="image/*" capture="environment" id="ocrIn" hidden></label><span class="mut" id="ocrSt"></span></div>
+    let h = head + `<div class="row" style="margin-bottom:8px"><label class="btn pri" style="margin:0;color:#fff">📷 拍收據記帳<input type="file" accept="image/*" capture="environment" id="ocrIn" hidden></label><button data-act="voiceexp">🎤 語音記帳</button><span class="mut" id="ocrSt"></span></div>
       <div class="card"><div class="row"><div class="sp"><div class="mut">總花費</div><div class="big">${fmt(total)} <small>${t.home}</small></div></div>
       ${t.budget ? `<div style="text-align:right"><div class="mut">剩餘預算</div><b style="color:${total > t.budget ? "var(--red)" : "inherit"}">${fmt(t.budget - total)}</b></div>` : ""}</div>
       ${t.people.length > 1 ? `<div class="mut">每人平均 ${fmt(total / t.people.length)}</div>` : ""}</div>`;
@@ -2175,7 +2255,8 @@ const TOOLS = {
   },
   緊急(t) {
     const cc = ccOf(t), list = SOS[cc] || [["緊急（多數國家通用）", "112"]];
-    return `<h2>${esc((TAX[cc] || [""])[0] || t.loc?.country || "當地")} 緊急電話</h2><div class="card"><table>${list.map(([n, tel]) => `<tr><td>${esc(n)}</td><td class="r big" style="font-size:calc(20px*var(--fz,1))">${telLink(tel)}</td></tr>`).join("")}</table></div>
+    return `<div class="card row" data-act="ecard" style="border-color:var(--red)"><span class="sp">🆘 <b>緊急卡</b><div class="mut">大字顯示飯店地址給司機、過敏與病史給醫護人員看</div></span><span class="mut">›</span></div>
+      <h2>${esc((TAX[cc] || [""])[0] || t.loc?.country || "當地")} 緊急電話</h2><div class="card"><table>${list.map(([n, tel]) => `<tr><td>${esc(n)}</td><td class="r big" style="font-size:calc(20px*var(--fz,1))">${telLink(tel)}</td></tr>`).join("")}</table></div>
       <h2>台灣外交部</h2><div class="card"><table><tr><td>外交部緊急聯絡中心（24小時）</td><td class="r">${telLink("+886-800-085-095")}</td></tr></table>
       <div class="mut">當地駐外館處電話請到 <a href="https://www.boca.gov.tw/" target="_blank" rel="noopener">外交部領事事務局</a> 查詢後按 ＋ 存下來</div></div>
       <h2>我的緊急聯絡</h2>${t.emerg.length ? `<div class="card"><table>${t.emerg.map((x) => `<tr data-edit="emerg:${x.id}"><td><b>${esc(x.name)}</b>${x.note ? `<div class="mut" style="white-space:pre-wrap">${esc(x.note)}</div>` : ""}</td><td class="r">${x.tel ? telLink(x.tel) : ""}</td></tr>`).join("")}</table></div>` : `<div class="card mut">按 ＋ 新增：旅平險／海外急難救助電話、信用卡掛失電話、飯店電話、駐外館處…</div>`}`;
@@ -2369,6 +2450,8 @@ document.addEventListener("click", async (e) => {
     else if (act === "premap") return preMap(t);
     else if (act === "calprev" || act === "calnext") { const ds = calDays(t), k = ds.indexOf(filt.cd) + (act === "calnext" ? 1 : -1); if (ds[k]) filt.cd = ds[k]; calScroll.done = null; return render(); }
     else if (act === "route") { const sq = routeSeq(t, filt.cd), k = +el.dataset.k; return sq[k] && showRoute(sq[k - 1].o, sq[k].i); }
+    else if (act === "ecard") return showECard(t, el.dataset.m);
+    else if (act === "voiceexp") return voiceExp(t);
     else if (act === "optday") return optimizeDay(t, filt.cd);
     else if (act === "feeexp") { const d = el.dataset.d, f = feeOf(t, d); return openForm("exp", null, null, { date: d, cat: "交通", amt: f * t.people.length, cur: t.cur, note: feeNote(d) }); }
     else if (act === "gocal") { filt.iv = "行事曆"; filt.cd = el.dataset.d; return goTab("itin"); }
