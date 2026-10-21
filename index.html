@@ -197,7 +197,7 @@ const today = () => new Date().toLocaleDateString("sv");
 
 function newTrip(name) {
   return { id: uid(), name: name || "新旅程", start: "", end: "", home: "TWD", cur: "JPY", people: ["我"], budget: 0, manualRate: 0,
-    itin: [], spots: [], books: [], tickets: [], exp: [], pack: [], emerg: [], phr: [], loc: null, wallet: [], prep: {}, shop: [], diary: [], coupons: [] };
+    itin: [], spots: [], books: [], tickets: [], exp: [], pack: [], emerg: [], phr: [], loc: null, wallet: [], prep: {}, shop: [], diary: [], coupons: [], tcard: [] };
 }
 let S;
 try { S = JSON.parse(localStorage.getItem(KEY)); } catch (e) { S = null; }
@@ -313,6 +313,7 @@ const MODES = [["🚶 步行", "walking"], ["🚃 電車/地鐵", "transit"], ["
 const SCHEMA = {
   itin: [["date", "日期(住宿＝入住日)", "date"], ["endDate", "結束日期(住宿＝退房日，跨天才填)", "date"], ["time", "開始時間(住宿＝入住時間)", "time"], ["end", "結束時間(住宿＝退房時間；沒填算 1 小時)", "time"], ["title", "活動", "text", 1], ["cat", "類型", "select", 0, ICATS.map((x) => x[0])], ["place", "地點(可貼Google地圖連結)", "text"], ["hours", "營業時間(排進行程會自動檢查)", "hours"], ["rsv", "訂位", "select", 0, ["", "要訂位", "已訂位"]], ["rsvOpen", "開放訂位日(選填，到時提醒)", "date"], ["mode", "從上一個行程怎麼過去", "select", 0, ["", ...MODES.map((m) => m[0])]], ["travel", "交通時間(分鐘，選填；沒填會依距離估)", "number"], ["how", "怎麼去(選填，例：機場線 福岡空港→中洲川端)", "text"], ["note", "備註", "textarea"]],
   shop: [["name", "要買什麼", "text", 1], ["cat", "分類", "select", 0, SHOP_CATS], ["where", "在哪買(店名/地點)", "text"], ["price", "預估價格", "number"], ["cur", "幣別", "cur"], ["qty", "數量", "number"], ["who", "送誰／自用", "text"], ["file", "商品照片(給店員看)", "file"], ["note", "備註", "textarea"]],
+  tcard: [["date", "日期", "date"], ["amt", "加值金額(當地幣，含押金可以分開記)", "number", 1], ["note", "備註(例：Suica 首次購卡、車站加值)", "text"]],
   wallet: [["date", "日期", "date"], ["amt", "換到的外幣金額(負數=調整減少)", "number", 1], ["cur", "幣別", "cur"], ["cost", "花了多少本國幣(選填，用來算實際匯率)", "number"], ["note", "備註(在哪換)", "text"]],
   spots: [["name", "名稱", "text", 1], ["cat", "分類", "select", 0, SPOT_CATS], ["city", "城市/區域", "text"], ["addr", "地址或地圖連結", "text"], ["hours", "營業時間(排進行程會自動檢查)", "hours"], ["price", "門票/預算", "text"], ["prio", "優先", "select", 0, ["必去", "想去", "有空再去"]], ["rsv", "訂位", "select", 0, ["", "要訂位", "已訂位"]], ["rsvOpen", "開放訂位日(選填，到時提醒)", "date"], ["note", "備註", "textarea"]],
   books: [["type", "類型", "select", 0, BOOK_TYPES], ["title", "名稱(航班號/飯店名)", "text", 1], ["from", "出發地/地址", "text"], ["to", "目的地", "text"], ["start", "開始(起飛/入住)", "datetime-local"], ["end", "結束(抵達/退房)", "datetime-local"], ["code", "訂位代號", "text"], ["seat", "座位/房型", "text"], ["price", "金額", "number"], ["cur", "幣別", "cur"], ["paid", "已付款", "check"], ["note", "備註", "textarea"]],
@@ -333,6 +334,7 @@ const DEFAULTS = {
   pack: () => ({ cat: "其他", bag: "托運", qty: 1 }),
   emerg: () => ({}),
   wallet: () => ({ date: today(), cur: T().cur }),
+  tcard: () => ({ date: today() }),
   shop: () => ({ cat: "伴手禮", cur: T().cur, qty: 1 }),
   phr: () => ({}),
 };
@@ -1429,7 +1431,7 @@ function diaryHtml(t) {
   const days = diaryDays(t);
   if (!days.length) return `<div class="empty">到 ⚙︎ 設定旅程日期，就能每天寫日記</div>`;
   const startD = t.start ? new Date(t.start + "T00:00") : null;
-  return `<div class="row noprint" style="margin-bottom:8px"><span class="sp mut">每天寫幾句、放幾張照片，回來就是遊記</span><label class="btn sm" style="margin:0">📷 照片自動分日<input type="file" accept="image/*" multiple id="diaryAuto" hidden></label><button class="sm" data-act="print">列印／存 PDF</button></div><div class="mut" id="diaryAutoSt"></div>
+  return `<div class="row noprint" style="margin-bottom:8px"><span class="sp mut">每天寫幾句、放幾張照片，回來就是遊記</span><button class="sm" data-act="album">🖼 相簿</button><label class="btn sm" style="margin:0">📷 照片自動分日<input type="file" accept="image/*" multiple id="diaryAuto" hidden></label><button class="sm" data-act="print">列印／存 PDF</button></div><div class="mut" id="diaryAutoSt"></div>
     <h2 class="printonly" style="display:none">${esc(t.name)} 旅行日記</h2>` +
     days.map((d) => {
       const e = t.diary.find((x) => x.date === d), n = startD ? Math.round((new Date(d + "T00:00") - startD) / 864e5) + 1 : null;
@@ -1579,6 +1581,7 @@ function calHtml(t) {
   const days = calDays(t);
   if (!days.length) return `<div class="empty">到 ⚙︎ 設定旅程日期，或按 ＋ 新增行程</div>`;
   if (!filt.cd || !days.includes(filt.cd)) filt.cd = days.includes(today()) ? today() : days[0];
+  loadHol(ccOf(t), filt.cd.slice(0, 4));
   const d = filt.cd, idx = days.indexOf(d), startD = t.start ? new Date(t.start + "T00:00") : null;
   const n = startD ? Math.round((new Date(d + "T00:00") - startD) / 864e5) + 1 : null;
   const items = t.itin.filter((i) => i.date === d || (isMulti(i) && i.date < d && d <= i.endDate));
@@ -1611,7 +1614,7 @@ function calHtml(t) {
       <div class="chips" style="margin:0;flex:1">${days.map((x) => `<button class="${x === d ? "on" : ""}" data-f="cd" data-v="${x}">${x.slice(5)}(${dayName(x)})</button>`).join("")}</div>
       <button class="sm" data-act="calnext" ${idx < days.length - 1 ? "" : "disabled"}>›</button></div>
     <div class="row" style="margin:4px 0 8px"><h3 class="sp" style="margin:0">${n > 0 ? `Day ${n}・` : ""}${d} (${dayName(d)})</h3><span class="wx">${wxTxt(wxOf(t, d))}</span><button class="sm noprint" data-act="optday" title="依距離重排今天的順序與時間">🔀 排順序</button></div>
-    ${wxOf(t, d) ? `<div class="mut" style="margin:-4px 0 8px">${outfit(wxOf(t, d))}</div>` : ""}${feeHtml(t, d)}${rainHtml(t, d)}
+    ${wxOf(t, d) ? `<div class="mut" style="margin:-4px 0 8px">${outfit(wxOf(t, d))}</div>` : ""}${holHtml(t, d)}${feeHtml(t, d)}${rainHtml(t, d)}
     ${present.length > 1 ? `<div class="chips noprint"><button class="${!filt.ic ? "on" : ""}" data-f="ic" data-v="">全部</button>${present.map(([c, ic]) => `<button class="${filt.ic === c ? "on" : ""}" data-f="ic" data-v="${c}"><span class="cdot c-${c}"></span>${ic} ${c}</button>`).join("")}</div>` : ""}`;
   for (const i of banners) { const k = spanDates(i.date, d).length, N = nights(i);
     h += `<div class="calban c-${icatOf(i)}" data-edit="itin:${i.id}">${icatIcon(icatOf(i))} <b>${esc(i.title)}</b><span class="mut">・${icatOf(i) === "住宿" ? `第 ${k} 晚／共 ${N} 晚` : `第 ${k} 天／共 ${N + 1} 天`}・${i.date.slice(5)}～${i.endDate.slice(5)}</span></div>`; }
@@ -2260,6 +2263,85 @@ async function trPhoto(t, file) {
   render();
 }
 
+// ===== 交通卡餘額: 加值紀錄 − 用「交通卡」付款的花費 =====
+function tcardHtml(t) {
+  const used = t.exp.filter((e) => e.pay === "交通卡");
+  if (!t.tcard.length && !used.length) return `<div class="card row"><span class="sp mut">🚃 交通卡：記下 Suica／PASMO 加值，付款方式選「交通卡」會自動扣，隨時知道餘額</span><button class="sm" data-act="addtcard">＋ 加值</button></div>`;
+  const add = t.tcard.reduce((s, x) => s + (+x.amt || 0), 0), spent = used.reduce((s, e) => s + (+e.amt || 0) * rate(e.cur, t.cur), 0), bal = add - spent;
+  return `<div class="card"><div class="row"><h3 class="sp">🚃 交通卡・餘額</h3><button class="sm" data-act="addtcard">＋ 加值</button><button class="sm" data-act="tcardlist">紀錄</button></div>
+    <div class="row"><span class="sp mut">加值 ${fmt(add)}・用掉 ${fmt(spent)}（${used.length} 筆）</span><span class="big" style="font-size:calc(22px*var(--fz,1));${bal < 0 ? "color:var(--red)" : bal < 500 && t.cur === "JPY" ? "color:var(--warn)" : ""}">${fmt(bal)} <small>${t.cur}</small></span></div>
+    ${bal < 0 ? '<div class="mut" style="color:var(--red)">餘額是負的：可能有加值沒記到</div>' : bal < 500 && t.cur === "JPY" ? '<div class="mut" style="color:var(--warn)">餘額不多了，記得加值（車站售票機、便利商店都可以）</div>' : ""}
+    ${filt.tcl ? [...t.tcard.map((x) => ({ ...x, k: "tcard", sign: 1 })), ...used.map((e) => ({ ...e, k: "exp", sign: -1 }))].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((x) => `<div class="row mut" data-edit="${x.k}:${x.id}" style="padding:4px 0;border-top:1px solid var(--line)"><span class="sp">${x.date || ""} ${esc(x.note || (x.sign > 0 ? "加值" : x.cat))}</span><b style="color:${x.sign > 0 ? "var(--acc)" : "inherit"}">${x.sign > 0 ? "+" : "−"}${fmt(x.amt)}</b></div>`).join("") : ""}
+    <div class="mut" style="margin-top:4px">加值不算花費（每次搭車才算），避免重複計算</div></div>`;
+}
+
+// ===== 相簿: 日記照片依天數排, 全螢幕滑著看 =====
+async function openAlbum(t, start) {
+  const startD = t.start ? new Date(t.start + "T00:00") : null;
+  const ps = diaryDays(t).flatMap((d) => { const e = t.diary.find((x) => x.date === d); return e ? e.photos.map((p) => ({ ...p, d })) : []; });
+  if (!ps.length) return alert("日記裡還沒有照片");
+  let i = Math.max(0, start || 0);
+  const ov = document.createElement("div");
+  ov.style.cssText = "position:fixed;inset:0;background:#000;z-index:9999;display:flex;flex-direction:column;color:#fff;touch-action:pan-y";
+  ov.innerHTML = `<div style="display:flex;align-items:center;padding:10px 14px;gap:10px"><span id="alCap" style="flex:1"></span><button id="alX" style="background:none;border:0;color:#fff;font-size:26px">✕</button></div>
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden"><img id="alImg" style="max-width:100%;max-height:100%;object-fit:contain"><button id="alP" style="position:absolute;left:4px;background:rgba(255,255,255,.15);border:0;color:#fff;font-size:28px;border-radius:50%;width:44px;height:44px">‹</button><button id="alN" style="position:absolute;right:4px;background:rgba(255,255,255,.15);border:0;color:#fff;font-size:28px;border-radius:50%;width:44px;height:44px">›</button></div>`;
+  document.body.appendChild(ov);
+  const urls = {};
+  const show = async () => {
+    const p = ps[i], n = startD ? Math.round((new Date(p.d + "T00:00") - startD) / 864e5) + 1 : null;
+    $("#alCap").textContent = `${n > 0 ? `Day ${n}・` : ""}${p.d.slice(5)}（${dayName(p.d)}）　${i + 1} / ${ps.length}`;
+    let u = urls[p.fileId];
+    if (!u) { let b = await fget(p.fileId); if (!b && window.TravelSync && TravelSync.user) { b = await TravelSync.getFile(t, p.fileId); if (b) await fput(p.fileId, b); } u = urls[p.fileId] = b ? URL.createObjectURL(b) : ""; }
+    if (ps[i] === p) $("#alImg").src = u;
+  };
+  const go = (k) => { i = (i + k + ps.length) % ps.length; show(); };
+  const close = () => { ov.remove(); Object.values(urls).forEach((u) => u && URL.revokeObjectURL(u)); removeEventListener("keydown", key); };
+  const key = (e) => { if (e.key === "ArrowRight") go(1); else if (e.key === "ArrowLeft") go(-1); else if (e.key === "Escape") close(); };
+  $("#alX").onclick = close; $("#alP").onclick = () => go(-1); $("#alN").onclick = () => go(1);
+  let x0 = null; ov.ontouchstart = (e) => (x0 = e.touches[0].clientX); ov.ontouchend = (e) => { if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1); x0 = null; };
+  addEventListener("keydown", key);
+  show();
+}
+
+// ===== 當地節日、活動: 國定假日(Nager.Date) + 常見祭典/連假 =====
+S.hol ||= {};
+const holBusy = {};
+function loadHol(cc, y) {
+  const k = cc + y; if (!cc || holBusy[k] || (S.hol[k] && Date.now() - S.hol[k].ts < 30 * 864e5)) return;
+  holBusy[k] = 1;
+  fetch(`https://date.nager.at/api/v3/PublicHolidays/${y}/${cc}`).then((r) => r.json()).then((j) => {
+    S.hol[k] = { ts: Date.now(), d: Object.fromEntries(j.map((x) => [x.date, x.localName + (x.localName !== x.name ? `（${x.name}）` : "")])) }; saveLocal(); if (!$("#dlg").open) render();
+  }).catch(() => {}).finally(() => delete holBusy[k]);
+}
+// [月日起, 月日迄, 名稱, 城市關鍵字(空=全國), 提醒]
+const FEST = {
+  JP: [["01-01", "01-03", "正月新年", "", "很多店休息或縮短營業，神社人很多"], ["04-29", "05-05", "黃金週", "", "國內旅遊旺季，住宿貴、景點人多"], ["08-13", "08-16", "盂蘭盆節", "", "返鄉車潮，新幹線、高速公路很擠"], ["12-29", "12-31", "年末", "", "部分店家、景點開始休息"],
+    ["03-25", "04-10", "櫻花季（大約）", "", "賞櫻名所人多，花期每年不同"], ["05-03", "05-04", "博多咚打鼓港祭", "福岡|博多", "市區遊行、交通管制"], ["07-01", "07-15", "博多祇園山笠", "福岡|博多", "7/15 清晨「追山」是高潮"], ["09-12", "09-18", "放生會", "福岡|博多", "筥崎宮有很多攤販"],
+    ["11-03", "11-03", "唐津宮日節", "唐津", ""], ["07-01", "07-31", "祇園祭", "京都", "7/17、7/24 山鉾巡行，交通管制"], ["08-02", "08-07", "青森睡魔祭", "青森", ""], ["08-05", "08-07", "仙台七夕", "仙台", ""], ["02-04", "02-11", "札幌雪祭（大約）", "札幌", "每年日期不同"], ["07-24", "07-25", "天神祭", "大阪", "7/25 晚上有花火"]],
+  KR: [["01-01", "01-01", "新年", "", ""], ["04-01", "04-10", "櫻花季（大約）", "", ""]],
+  TH: [["04-13", "04-15", "潑水節", "", "全國潑水，手機要防水"], ["11-01", "11-30", "水燈節（約 11 月月圓）", "", "每年日期不同"]],
+  TW: [],
+};
+function holOf(t, d) {
+  const cc = ccOf(t), out = [], h = S.hol[cc + d.slice(0, 4)];
+  if (h && h.d[d]) out.push(["🎌", h.d[d] + "（國定假日）", "部分店家、銀行休息；景點人比較多"]);
+  const md = d.slice(5), city = t.loc ? `${t.loc.name} ${t.loc.q || ""}` : "";
+  for (const [a, b, n, c, tip] of FEST[cc] || []) if ((a <= b ? md >= a && md <= b : md >= a || md <= b) && (!c || new RegExp(c).test(city))) out.push(["🏮", n, tip]);
+  return out;
+}
+function holHtml(t, d) {
+  const l = holOf(t, d); if (!l.length) return "";
+  return `<div class="card noprint" style="padding:8px 10px">${l.map(([ic, n, tip]) => `<div><b>${ic} ${esc(n)}</b>${tip ? `<span class="mut">・${esc(tip)}</span>` : ""}</div>`).join("")}</div>`;
+}
+function tripHolHtml(t) {
+  const ds = tripDays(t); if (!ds.length) return "";
+  const l = ds.flatMap((d) => holOf(t, d).map((x) => [d, ...x]));
+  const seen = new Set(), rows = l.filter(([, , n]) => !seen.has(n) && seen.add(n));
+  if (!rows.length) return "";
+  return `<h2>旅程期間的節日、活動</h2><div class="card">${rows.map(([d, ic, n, tip]) => `<div class="row" data-act="gocal" data-d="${d}" style="padding:4px 0;border-top:1px solid var(--line)"><span class="sp">${ic} <b>${esc(n)}</b>${tip ? `<div class="mut">${esc(tip)}</div>` : ""}</span><span class="mut">${d.slice(5)}起</span></div>`).join("")}
+    <div class="mut" style="margin-top:4px">祭典日期每年可能不同，出發前再查一次；<a href="https://www.google.com/search?q=${encodeURIComponent(`${t.loc ? t.loc.name : ""} ${t.start.slice(0, 7)} 活動 祭典`)}" target="_blank" rel="noopener">搜尋當地活動 ↗</a></div></div>`;
+}
+
 // ===== 畫面 =====
 const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["books", "✈️", "訂位"], ["tickets", "🎫", "票券"], ["exp", "💰", "花費"], ["fx", "🧰", "工具"], ["pack", "📝", "清單"]];
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
@@ -2324,6 +2406,7 @@ const V = {
     const soon = liveCoupons(t).filter((c) => c.expire && daysLeft(c.expire) <= 3);
     if (soon.length) h += `<h2>🎟 快到期的優惠券</h2>` + soon.map((c) => `<div class="card row" data-act="cpshow" data-id="${c.id}"><span class="sp"><b>${esc(c.title)}</b><div class="mut">${esc(c.store || "")}${c.deal ? "・" + esc(c.deal) : ""}</div></span><span style="color:var(--red);font-weight:700">${expTxt(c.expire)}</span></div>`).join("");
     h += rsvHtml(t);
+    if (t.start && (!t.end || today() <= t.end)) { [...new Set(tripDays(t).map((d) => d.slice(0, 4)))].forEach((y) => loadHol(ccOf(t), y)); h += tripHolHtml(t); }
     if (next) h += `<h2>下一個預訂</h2>` + bookCard(next);
     return h;
   },
@@ -2396,7 +2479,7 @@ const V = {
       <div class="card"><div class="row"><div class="sp"><div class="mut">總花費</div><div class="big">${fmt(total)} <small>${t.home}</small></div></div>
       ${t.budget ? `<div style="text-align:right"><div class="mut">剩餘預算</div><b style="color:${total > t.budget ? "var(--red)" : "inherit"}">${fmt(t.budget - total)}</b></div>` : ""}</div>
       ${t.people.length > 1 ? `<div class="mut">每人平均 ${fmt(total / t.people.length)}</div>` : ""}</div>`;
-    h += walletHtml(t);
+    h += walletHtml(t) + tcardHtml(t);
     const daily = dailyBudget(t), dsum = (d) => tot(t.exp.filter((e) => e.date === d));
     if (daily) { const td = dsum(today()); h += `<div class="card"><div class="row"><span class="sp">今天花費 <b style="${td > daily ? "color:var(--red)" : ""}">${fmt(td)}</b> / 每日預算 ${fmt(daily)} ${t.home}</span>${td > daily ? '<span class="tag" style="background:var(--red);color:#fff">超支</span>' : ""}</div><div class="bar"><i style="width:${Math.min(100, (td / daily) * 100)}%;${td > daily ? "background:var(--red)" : ""}"></i></div></div>`; }
     const cdays = tripDays(t).length ? tripDays(t) : [...new Set(t.exp.map((e) => e.date).filter(Boolean))].sort();
@@ -2692,7 +2775,7 @@ document.addEventListener("click", async (e) => {
     else if (act === "ecard") return showECard(t, el.dataset.m);
     else if (act === "voiceexp") return voiceExp(t);
     else if (act === "optday") return optimizeDay(t, filt.cd);
-    else if (act === "feeexp") { const d = el.dataset.d, f = feeOf(t, d); return openForm("exp", null, null, { date: d, cat: "交通", amt: f * t.people.length, cur: t.cur, note: feeNote(d) }); }
+    else if (act === "feeexp") { const d = el.dataset.d, f = feeOf(t, d); return openForm("exp", null, null, { date: d, cat: "交通", amt: f * t.people.length, cur: t.cur, note: feeNote(d), ...(t.tcard.length ? { pay: "交通卡" } : {}) }); }
     else if (act === "gocal") { filt.iv = "行事曆"; filt.cd = el.dataset.d; return goTab("itin"); }
     else if (act === "offline") { $("#dlg").open && $("#dlg").close(); return offlinePack(t); }
     else if (act === "usall") { filt.usall = !filt.usall; return render(); }
@@ -2720,6 +2803,9 @@ document.addEventListener("click", async (e) => {
     else if (act === "rcsv") return receiptsCsv(t);
     else if (act === "rprint") return window.print();
     else if (act === "addwallet") return openForm("wallet");
+    else if (act === "addtcard") return openForm("tcard");
+    else if (act === "tcardlist") { filt.tcl = !filt.tcl; return render(); }
+    else if (act === "album") return openAlbum(t);
     else if (act === "shopimg") return showShopImg(t, t.shop.find((y) => y.id === id));
     else if (act === "cpshow") return showCoupon(t, t.coupons.find((y) => y.id === id));
     else if (act === "cptog") { const c = t.coupons.find((y) => y.id === id); c.used = !c.used; }
