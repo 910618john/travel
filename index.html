@@ -311,10 +311,10 @@ const icatOf = (i) => i.cat || (/住宿|飯店|酒店|旅館|民宿|入住|退�
 const icatIcon = (c) => (ICATS.find((x) => x[0] === c) || ICATS[0])[1];
 const MODES = [["🚶 步行", "walking"], ["🚃 電車/地鐵", "transit"], ["🚌 公車", "transit"], ["🚕 計程車", "driving"], ["🚗 開車", "driving"], ["✈️ 飛機", ""], ["⛴ 船", ""]];
 const SCHEMA = {
-  itin: [["date", "日期(住宿＝入住日)", "date"], ["endDate", "結束日期(住宿＝退房日，跨天才填)", "date"], ["time", "開始時間(住宿＝入住時間)", "time"], ["end", "結束時間(住宿＝退房時間；沒填算 1 小時)", "time"], ["title", "活動", "text", 1], ["cat", "類型", "select", 0, ICATS.map((x) => x[0])], ["place", "地點(可貼Google地圖連結)", "text"], ["hours", "營業時間(排進行程會自動檢查)", "hours"], ["mode", "從上一個行程怎麼過去", "select", 0, ["", ...MODES.map((m) => m[0])]], ["travel", "交通時間(分鐘，選填；沒填會依距離估)", "number"], ["how", "怎麼去(選填，例：機場線 福岡空港→中洲川端)", "text"], ["note", "備註", "textarea"]],
+  itin: [["date", "日期(住宿＝入住日)", "date"], ["endDate", "結束日期(住宿＝退房日，跨天才填)", "date"], ["time", "開始時間(住宿＝入住時間)", "time"], ["end", "結束時間(住宿＝退房時間；沒填算 1 小時)", "time"], ["title", "活動", "text", 1], ["cat", "類型", "select", 0, ICATS.map((x) => x[0])], ["place", "地點(可貼Google地圖連結)", "text"], ["hours", "營業時間(排進行程會自動檢查)", "hours"], ["rsv", "訂位", "select", 0, ["", "要訂位", "已訂位"]], ["rsvOpen", "開放訂位日(選填，到時提醒)", "date"], ["mode", "從上一個行程怎麼過去", "select", 0, ["", ...MODES.map((m) => m[0])]], ["travel", "交通時間(分鐘，選填；沒填會依距離估)", "number"], ["how", "怎麼去(選填，例：機場線 福岡空港→中洲川端)", "text"], ["note", "備註", "textarea"]],
   shop: [["name", "要買什麼", "text", 1], ["cat", "分類", "select", 0, SHOP_CATS], ["where", "在哪買(店名/地點)", "text"], ["price", "預估價格", "number"], ["cur", "幣別", "cur"], ["qty", "數量", "number"], ["who", "送誰／自用", "text"], ["file", "商品照片(給店員看)", "file"], ["note", "備註", "textarea"]],
   wallet: [["date", "日期", "date"], ["amt", "換到的外幣金額(負數=調整減少)", "number", 1], ["cur", "幣別", "cur"], ["cost", "花了多少本國幣(選填，用來算實際匯率)", "number"], ["note", "備註(在哪換)", "text"]],
-  spots: [["name", "名稱", "text", 1], ["cat", "分類", "select", 0, SPOT_CATS], ["city", "城市/區域", "text"], ["addr", "地址或地圖連結", "text"], ["hours", "營業時間(排進行程會自動檢查)", "hours"], ["price", "門票/預算", "text"], ["prio", "優先", "select", 0, ["必去", "想去", "有空再去"]], ["note", "備註", "textarea"]],
+  spots: [["name", "名稱", "text", 1], ["cat", "分類", "select", 0, SPOT_CATS], ["city", "城市/區域", "text"], ["addr", "地址或地圖連結", "text"], ["hours", "營業時間(排進行程會自動檢查)", "hours"], ["price", "門票/預算", "text"], ["prio", "優先", "select", 0, ["必去", "想去", "有空再去"]], ["rsv", "訂位", "select", 0, ["", "要訂位", "已訂位"]], ["rsvOpen", "開放訂位日(選填，到時提醒)", "date"], ["note", "備註", "textarea"]],
   books: [["type", "類型", "select", 0, BOOK_TYPES], ["title", "名稱(航班號/飯店名)", "text", 1], ["from", "出發地/地址", "text"], ["to", "目的地", "text"], ["start", "開始(起飛/入住)", "datetime-local"], ["end", "結束(抵達/退房)", "datetime-local"], ["code", "訂位代號", "text"], ["seat", "座位/房型", "text"], ["price", "金額", "number"], ["cur", "幣別", "cur"], ["paid", "已付款", "check"], ["note", "備註", "textarea"]],
   tickets: [["cat", "分類", "select", 0, TK_CATS], ["title", "名稱", "text", 1], ["date", "使用日期", "date"], ["code", "號碼/QR內容", "text"], ["file", "檔案(PDF/截圖)", "file"], ["used", "已使用", "check"], ["note", "備註", "textarea"]],
   coupons: [["title", "優惠名稱", "text", 1], ["store", "適用店家(多家用逗號分隔，例：唐吉訶德, BicCamera)", "text"], ["deal", "優惠內容(例：免稅再 10% off)", "text"], ["code", "折扣碼／條碼號碼", "text"], ["minSpend", "使用條件(例：滿 ¥10,000)", "text"], ["expire", "有效期限", "date"], ["file", "優惠券圖片(截圖／QR Code)", "file"], ["used", "已使用", "check"], ["note", "備註", "textarea"]],
@@ -1611,7 +1611,7 @@ function calHtml(t) {
       <div class="chips" style="margin:0;flex:1">${days.map((x) => `<button class="${x === d ? "on" : ""}" data-f="cd" data-v="${x}">${x.slice(5)}(${dayName(x)})</button>`).join("")}</div>
       <button class="sm" data-act="calnext" ${idx < days.length - 1 ? "" : "disabled"}>›</button></div>
     <div class="row" style="margin:4px 0 8px"><h3 class="sp" style="margin:0">${n > 0 ? `Day ${n}・` : ""}${d} (${dayName(d)})</h3><span class="wx">${wxTxt(wxOf(t, d))}</span><button class="sm noprint" data-act="optday" title="依距離重排今天的順序與時間">🔀 排順序</button></div>
-    ${feeHtml(t, d)}${rainHtml(t, d)}
+    ${wxOf(t, d) ? `<div class="mut" style="margin:-4px 0 8px">${outfit(wxOf(t, d))}</div>` : ""}${feeHtml(t, d)}${rainHtml(t, d)}
     ${present.length > 1 ? `<div class="chips noprint"><button class="${!filt.ic ? "on" : ""}" data-f="ic" data-v="">全部</button>${present.map(([c, ic]) => `<button class="${filt.ic === c ? "on" : ""}" data-f="ic" data-v="${c}"><span class="cdot c-${c}"></span>${ic} ${c}</button>`).join("")}</div>` : ""}`;
   for (const i of banners) { const k = spanDates(i.date, d).length, N = nights(i);
     h += `<div class="calban c-${icatOf(i)}" data-edit="itin:${i.id}">${icatIcon(icatOf(i))} <b>${esc(i.title)}</b><span class="mut">・${icatOf(i) === "住宿" ? `第 ${k} 晚／共 ${N} 晚` : `第 ${k} 天／共 ${N + 1} 天`}・${i.date.slice(5)}～${i.endDate.slice(5)}</span></div>`; }
@@ -2096,6 +2096,103 @@ function fpAdd() {
   dlg.showModal();
 }
 
+// ===== 天氣穿搭建議 =====
+function outfit(w) {
+  if (!w) return "";
+  const [code, mx, mn, rp] = w, a = [];
+  a.push(mx >= 28 ? "短袖、透氣衣物、防曬" : mx >= 23 ? "短袖＋薄外套" : mx >= 18 ? "長袖＋薄外套" : mx >= 12 ? "長袖＋毛衣或夾克" : mx >= 6 ? "發熱衣＋毛衣＋大衣" : "發熱衣＋羽絨外套＋圍巾手套");
+  if (mx - mn >= 10) a.push("早晚溫差大，洋蔥式穿法");
+  if (rp >= 50 || [61, 63, 65, 80, 81, 82, 95].includes(code)) a.push("帶傘、穿防水的鞋");
+  if ([71, 73, 75, 77, 85, 86].includes(code)) a.push("可能下雪，穿止滑的鞋");
+  return "👕 " + a.join("・");
+}
+
+// ===== 營業時間衝突檢查(整趟) =====
+function hoursCheck(t) {
+  const rows = [], noH = [];
+  for (const i of t.itin.filter((x) => x.date && x.time && !isMulti(x)).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))) {
+    let w = hoursWarn(i, t);
+    const sp = (i.spotId && t.spots.find((s) => s.id === i.spotId)) || t.spots.find((s) => s.name === i.title), h = parseHours(i.hours || (sp && sp.hours));
+    if (!w && h && h.close != null && i.end && h.close - h.open < 1440) { const e = toMin(i.end); if (e > h.close && e - h.close < 600) w = `⚠️ ${hm(h.close)} 就打烊，排到 ${i.end}`; }
+    if (w) rows.push([i, w]); else if (!h && !["住宿", "交通"].includes(icatOf(i))) noH.push(i);
+  }
+  const dlg = $("#dlg"); dlg.onclose = null;
+  $("#dlgForm").innerHTML = `<h3>🕘 營業時間檢查</h3>
+    ${rows.length ? rows.map(([i, w]) => `<div class="card row" data-edit="itin:${i.id}" style="padding:8px 10px"><span class="sp"><b>${esc(i.title)}</b><div class="mut">${i.date.slice(5)}（${dayName(i.date)}）${i.time}${i.end ? "–" + i.end : ""}</div></span><span style="color:var(--warn);font-weight:700">${esc(w)}</span></div>`).join("") : '<div class="card">✅ 有填營業時間的行程都沒問題</div>'}
+    ${noH.length ? `<div class="mut" style="margin-top:8px">${noH.length} 個行程沒填營業時間，沒辦法檢查：${noH.slice(0, 8).map((i) => esc(i.title)).join("、")}${noH.length > 8 ? "…" : ""}</div>` : ""}
+    <div class="row" style="margin-top:12px"><span class="sp"></span><button value="cancel" class="pri">關閉</button></div>`;
+  dlg.showModal();
+}
+
+// ===== 訂位提醒 =====
+function rsvList(t) {
+  return [...t.itin.map((x) => ({ x, k: "itin", name: x.title, date: x.date })), ...t.spots.map((x) => ({ x, k: "spots", name: x.name }))]
+    .filter(({ x }) => x.rsv === "要訂位").sort((a, b) => (a.x.rsvOpen || "9").localeCompare(b.x.rsvOpen || "9"));
+}
+function rsvHtml(t) {
+  const l = rsvList(t); if (!l.length) return "";
+  return `<h2>🍽 要訂位</h2><div class="card">${l.map(({ x, k, name, date }) => {
+    const n = x.rsvOpen ? daysLeft(x.rsvOpen) : null;
+    const st = n == null ? '<span class="mut">還沒填開放日</span>' : n <= 0 ? '<b style="color:var(--red)">現在可以訂了！</b>' : n <= 3 ? `<b style="color:var(--warn)">${n} 天後開放</b>` : `<span class="mut">${x.rsvOpen.slice(5)} 開放（${n} 天後）</span>`;
+    return `<div class="row" data-edit="${k}:${x.id}" style="padding:5px 0;border-top:1px solid var(--line)"><span class="sp">${esc(name)}${date ? ` <span class="mut">${date.slice(5)}</span>` : ""}</span>${st}</div>`;
+  }).join("")}<div class="mut" style="margin-top:4px">訂好了點進去把「訂位」改成「已訂位」</div></div>`;
+}
+
+// ===== 機場時間倒推 =====
+function airportPlan(t, b) {
+  const dlg = $("#dlg"), f = $("#dlgForm"); dlg.onclose = null;
+  const p = b.ap || { early: 120, ride: 45, pack: 15 };
+  const draw = () => {
+    const dep = toMin(b.start.slice(11, 16)), arrive = dep - p.early, leave = arrive - p.ride, out = leave - p.pack;
+    const neg = out < 0 ? "（前一天）" : "";
+    f.innerHTML = `<h3>⏱ ${esc(b.title)} 機場時間倒推</h3><div class="mut">起飛 ${dt(b.start)}${b.from ? "・" + esc(b.from) : ""}</div>
+      <div class="grid2"><div><label>提早到機場（分）</label><input type="number" name="early" value="${p.early}"></div><div><label>到機場交通（分）</label><input type="number" name="ride" value="${p.ride}"></div></div>
+      <label>退房、整理行李（分）</label><input type="number" name="pack" value="${p.pack}">
+      <div class="card" style="margin-top:10px;font-size:calc(17px*var(--fz,1))">
+        <div>🧳 <b>${hm((out + 1440) % 1440)}</b> 退房${neg}</div><div>🚃 <b>${hm((leave + 1440) % 1440)}</b> 出發去機場</div><div>🛫 <b>${hm((arrive + 1440) % 1440)}</b> 抵達機場、報到</div><div>✈️ <b>${hm(dep)}</b> 起飛</div></div>
+      <div class="mut">國際線建議提早 2～3 小時；要退稅的話再多留 30 分鐘</div>
+      <div class="row" style="margin-top:12px"><span class="sp"></span><button value="cancel">關閉</button><button type="button" class="pri" id="apAdd">加入行程</button></div>`;
+    f.querySelectorAll("input").forEach((el) => (el.onchange = () => { p[el.name] = Math.max(0, +el.value || 0); b.ap = { ...p }; save(); draw(); }));
+    $("#apAdd").onclick = () => {
+      const d = b.start.slice(0, 10), id = "ap_" + b.id;
+      t.itin = t.itin.filter((x) => x.id !== id);
+      const it = { id, date: d, time: hm((leave + 1440) % 1440), end: hm((arrive + 1440) % 1440), title: `前往機場（${b.title}）`, cat: "交通", place: b.from || "", note: `${hm((out + 1440) % 1440)} 退房・${hm(arrive)} 報到・${hm(dep)} 起飛`, travel: "" };
+      t.itin.push(it); placeByTime(t, it); save(); dlg.close(); render(); toast(`已加入 ${d.slice(5)} ${it.time} 前往機場`);
+    };
+  };
+  draw(); dlg.showModal();
+}
+
+// ===== 退稅提醒 =====
+function taxRemindHtml(t) {
+  const list = t.exp.filter((e) => e.tf); if (!list.length) return "";
+  const end = t.end, n = end ? daysLeft(end) : null;
+  if (n == null || n > 2 || n < 0) return "";
+  const sum = list.reduce((s, e) => s + (+e.amt || 0) * rate(e.cur, t.cur), 0), jp = ccOf(t) === "JP";
+  return `<div class="card" style="border-color:var(--warn)"><b>🧾 ${n === 0 ? "今天" : n + " 天後"}回國：有 ${list.length} 筆免稅／退稅購物（約 ${fmt(sum)} ${t.cur}）</b>
+    <div class="mut" style="margin-top:4px">${jp ? "日本 2026/11 起改成「先付含稅、出境時退稅」：東西不要拆封，帶護照，在機場出境前到海關確認，退稅才會下來（以官方公告為準）。" : "出境前到機場退稅櫃台辦理，東西不要拆封，帶護照和退稅單。"}可以預留 30～60 分鐘。</div>
+    <div class="row" style="margin-top:6px"><button class="sm" data-act="gotax">看退稅收據</button></div></div>`;
+}
+
+// ===== 隨手拍打卡: 拍照 → 記時間位置 → 放進今天日記 =====
+async function checkin(t, file) {
+  const tn = tripNow(t), d = tn.d, tm = hm(tn.m);
+  toast("📸 打卡中…");
+  const pos = await new Promise((res) => navigator.geolocation ? navigator.geolocation.getCurrentPosition((p) => res(p.coords), () => res(null), { enableHighAccuracy: true, timeout: 8000 }) : res(null));
+  let place = "";
+  if (pos) {
+    const near = [...t.itin.filter((i) => i.lat != null), ...t.spots.filter((s) => s.lat != null)].map((x) => [x, distKm({ lat: pos.latitude, lon: pos.longitude }, x)]).sort((a, b) => a[1] - b[1])[0];
+    if (near && near[1] < 0.4) { place = near[0].title || near[0].name; if (near[0].prio && !near[0].done) near[0].done = true; }
+    else try { const j = await (await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=18&accept-language=zh-TW&lat=${pos.latitude}&lon=${pos.longitude}`)).json(); place = j.name || (j.display_name || "").split(",")[0]; } catch (e) { }
+  }
+  const ph = file ? await storeFile(t, file) : null;
+  if (ph && pos) { ph.lat = +pos.latitude.toFixed(5); ph.lon = +pos.longitude.toFixed(5); }
+  let e = t.diary.find((x) => x.date === d); if (!e) { e = { id: uid(), date: d, text: "", photos: [] }; t.diary.push(e); }
+  if (ph) e.photos.push(ph);
+  e.text = (e.text ? e.text + "\n" : "") + `${tm} 📍 ${place || (pos ? `${pos.latitude.toFixed(4)},${pos.longitude.toFixed(4)}` : "（沒有定位）")}`;
+  save(); render(); toast(`已打卡：${tm} ${place || ""}`.trim());
+}
+
 // ===== 畫面 =====
 const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["books", "✈️", "訂位"], ["tickets", "🎫", "票券"], ["exp", "💰", "花費"], ["fx", "🧰", "工具"], ["pack", "📝", "清單"]];
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
@@ -2122,8 +2219,8 @@ const V = {
     const tkToday = t.tickets.filter((k) => k.date === today() && !k.used);
     let h = `<div class="card"><h3>${esc(t.name)}</h3><div class="mut">${t.start || "?"} ～ ${t.end || "?"}・${t.people.map(esc).join("、")}</div>
       ${days !== null ? `<div class="big" style="margin-top:6px">${days > 0 ? `倒數 ${days} 天` : days === 0 ? "今天出發！" : t.end && today() <= t.end ? `旅程第 ${1 - days} 天` : "已結束"}</div>` : `<div class="mut" style="margin-top:6px">到 ⚙︎ 設定日期</div>`}</div>`;
-    h += nextStopHtml(t);
-    if (t.start && t.end && today() >= t.start && today() <= t.end) h += `<div class="row" style="margin-bottom:10px"><button data-act="ecard" data-m="taxi" style="flex:1">🚕 回飯店</button><button data-act="ecard" data-m="med" style="flex:1">🆘 緊急卡</button></div>`;
+    h += nextStopHtml(t) + taxRemindHtml(t);
+    if (t.start && t.end && tripNow(t).d >= t.start && tripNow(t).d <= t.end) h += `<div class="row" style="margin-bottom:10px"><button data-act="ecard" data-m="taxi" style="flex:1">🚕 回飯店</button><button data-act="ecard" data-m="med" style="flex:1">🆘 緊急卡</button><label class="btn" style="margin:0;flex:1;text-align:center">📸 打卡<input type="file" accept="image/*" capture="environment" id="ckIn" hidden></label></div>`;
     const tn = tripNow(t).d, daily = dailyBudget(t);
     if (daily && tripDays(t).includes(tn)) {
       const td = t.exp.filter((e) => e.date === tn).reduce((s, e) => s + (toHome(e.amt, e.cur) || 0), 0), lf = daily - td, r = rate(t.home, t.cur);
@@ -2153,19 +2250,20 @@ const V = {
       if (t.start && t.end) for (let d = new Date(t.start + "T00:00"); d <= new Date(t.end + "T00:00") && tripDays.length < 30; d.setDate(d.getDate() + 1)) tripDays.push(d.toLocaleDateString("sv"));
       let ds = tripDays.filter((d) => wxOf(t, d)), title = "旅程天氣預報";
       if (!ds.length) { const c = S.wx[wxKey(t)]; ds = c ? Object.keys(c.d).filter((d) => d >= today()).slice(0, 5) : []; title = `${esc(t.loc.name)} 近期天氣`; }
-      if (ds.length) h += `<h2>${title}</h2><div class="card"><table>${ds.map((d) => `<tr><td>${d.slice(5)} (${dayName(d)})</td><td class="r">${wxTxt(wxOf(t, d))}</td></tr>`).join("")}</table>${tripDays.length && !tripDays.some((d) => wxOf(t, d)) ? '<div class="mut">出發前 16 天內會顯示旅程期間預報</div>' : ""}</div>`;
+      if (ds.length) h += `<h2>${title}</h2><div class="card"><table>${ds.map((d) => `<tr><td>${d.slice(5)} (${dayName(d)})</td><td class="r">${wxTxt(wxOf(t, d))}<div class="mut" style="font-size:calc(12px*var(--fz,1))">${outfit(wxOf(t, d))}</div></td></tr>`).join("")}</table>${tripDays.length && !tripDays.some((d) => wxOf(t, d)) ? '<div class="mut">出發前 16 天內會顯示旅程期間預報</div>' : ""}</div>`;
     }
     h += `<h2>今天行程</h2>` + (todays.length ? todays.map(itinCard).join("") : `<div class="card mut">今天沒有安排</div>`);
     if (tkToday.length) h += `<h2>今天要用的票券</h2>` + tkToday.map(tkCard).join("");
     const soon = liveCoupons(t).filter((c) => c.expire && daysLeft(c.expire) <= 3);
     if (soon.length) h += `<h2>🎟 快到期的優惠券</h2>` + soon.map((c) => `<div class="card row" data-act="cpshow" data-id="${c.id}"><span class="sp"><b>${esc(c.title)}</b><div class="mut">${esc(c.store || "")}${c.deal ? "・" + esc(c.deal) : ""}</div></span><span style="color:var(--red);font-weight:700">${expTxt(c.expire)}</span></div>`).join("");
+    h += rsvHtml(t);
     if (next) h += `<h2>下一個預訂</h2>` + bookCard(next);
     return h;
   },
   itin(t) {
     const mode = filt.iv || "行事曆";
     let h = `<div class="row noprint" style="margin-bottom:8px"><div class="chips tight" style="margin:0">${["行事曆", "清單", "景點", "地圖", "日記"].map((m) => `<button class="${m === mode ? "on" : ""}" data-f="iv" data-v="${m}">${{ 行事曆: "🕘", 清單: "📋", 景點: "📍", 地圖: "🗺", 日記: "📔" }[m]} ${m}${m === "景點" && unsched(t).length ? ` <span class="badge">${unsched(t).length}</span>` : ""}</button>`).join("")}</div><span class="sp"></span>
-      ${mode === "清單" ? '<button class="sm" data-act="share">分享</button><button class="sm" data-act="print">列印/PDF</button>' : ""}</div>`;
+      ${mode === "清單" ? '<button class="sm" data-act="hourschk">🕘 檢查營業時間</button><button class="sm" data-act="share">分享</button><button class="sm" data-act="print">列印/PDF</button>' : ""}</div>`;
     if (mode === "日記") return h + diaryHtml(t);
     if (mode === "景點") return h + `<div class="mut" style="margin-bottom:6px">想去的地方先收在這裡，按「加入行程」或在行事曆裡「排進今天」</div>` + V.spots(t);
     if (mode === "行事曆") return h + calHtml(t);
@@ -2427,7 +2525,8 @@ function bookCard(b) {
     ${b.from || b.to ? `<div>${b.type === "住宿" ? mapLink(b.from) : esc(b.from) + (b.to ? " → " + esc(b.to) : "")}</div>` : ""}
     <div class="mut">${dt(b.start)}${b.end ? " ～ " + dt(b.end) : ""}</div>
     <div class="mut">${b.code ? `訂位：<b style="color:var(--fg);user-select:all">${esc(b.code)}</b>` : ""}${b.seat ? "・" + esc(b.seat) : ""}${b.price ? `・${fmt(b.price, 2)} ${b.cur}` : ""}</div>
-    ${b.note ? `<div class="mut" style="white-space:pre-wrap">${esc(b.note)}</div>` : ""}</div>`;
+    ${b.note ? `<div class="mut" style="white-space:pre-wrap">${esc(b.note)}</div>` : ""}
+    ${b.type === "機票" && /T\d\d:\d\d/.test(b.start || "") ? `<div class="row noprint" style="margin-top:6px"><button class="sm" data-act="airport" data-id="${b.id}">⏱ 機場時間倒推</button></div>` : ""}</div>`;
 }
 function tkCard(k) {
   return `<div class="card ${k.used ? "done" : ""}" data-edit="tickets:${k.id}"><div class="row"><h3 class="sp">${esc(k.title)}</h3><span class="tag">${esc(k.cat)}</span></div>
@@ -2458,6 +2557,7 @@ function render() {
   if ((S.tab === "tickets" && filt.tk === "優惠券") || (S.tab === "exp" && filt.ex === "收據整理") || (S.tab === "itin" && filt.iv === "日記") || (S.tab === "pack" && (filt.pk || "必買") === "必買")) fillThumbs();
   if (S.tab === "itin" && (filt.iv || "行事曆") === "行事曆") { calScroll(); gRouteDay(t, filt.cd); autoGeoDay(t, filt.cd); }
   if (S.tab === "itin" && filt.iv === "清單" && S.gkey) [...new Set(t.itin.map((i) => i.date))].forEach((d) => d && gRouteDay(t, d));
+  if ($("#ckIn")) $("#ckIn").onchange = (e) => { const f = e.target.files[0]; if (f) checkin(T(), f).catch((err) => alert("打卡失敗：" + err.message)); };
   if ($("#diaryAuto")) $("#diaryAuto").onchange = (e) => { const fs = [...e.target.files]; if (fs.length) diaryAuto(T(), fs); };
   if ($("#ocrIn")) $("#ocrIn").onchange = (e) => { const f = e.target.files[0]; if (f) doOcr(f).catch((err) => alert("失敗：" + err.message)); };
   loadWx(t);
@@ -2507,6 +2607,9 @@ document.addEventListener("click", async (e) => {
     else if (act === "premap") return preMap(t);
     else if (act === "calprev" || act === "calnext") { const ds = calDays(t), k = ds.indexOf(filt.cd) + (act === "calnext" ? 1 : -1); if (ds[k]) filt.cd = ds[k]; calScroll.done = null; return render(); }
     else if (act === "route") { const sq = routeSeq(t, filt.cd), k = +el.dataset.k; return sq[k] && showRoute(sq[k - 1].o, sq[k].i); }
+    else if (act === "hourschk") return hoursCheck(t);
+    else if (act === "airport") return airportPlan(t, t.books.find((x) => x.id === el.dataset.id));
+    else if (act === "gotax") { filt.ex = "收據整理"; filt.rf = "退稅"; return goTab("exp"); }
     else if (act === "fpadd") return fpAdd();
     else if (act === "fpdel") { const id = el.dataset.id, old = S.fp; S.fp = S.fp.filter((x) => x.id !== id); saveLocal(); render(); return toast("已刪除", "復原", () => { S.fp = old; saveLocal(); render(); }); }
     else if (act === "ecard") return showECard(t, el.dataset.m);
