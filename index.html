@@ -1069,15 +1069,35 @@ const NOTES = {
   TR: ["進清真寺女生要包頭巾、遮肩膝，脫鞋"],
   EU: ["熱門景點、地鐵扒手很多（巴黎、羅馬、巴塞隆納），包包背前面", "很多國家週日商店休息", "餐廳的水通常要付費", "進教堂服裝要遮肩膝"],
 };
+// 行前準備: 依出發前多久分階段, 加上出門前必帶最後檢查; 打勾存在 t.prep(用文字當 key)
+// 每項 [文字, 自動完成條件(選填), 連結(選填)]
+const PREP_STAGES = [
+  ["1 個月前", 30, [["訂好機票", (t) => t.books.some((b) => b.type === "機票")], ["訂好住宿", (t) => t.books.some((b) => b.type === "住宿") || t.itin.some((i) => icatOf(i) === "住宿")], [PREP_ALL[0]], [PREP_ALL[1]], [PREP_ALL[3]], ["要訂位的餐廳、門票先訂", (t) => { const r = t.itin.concat(t.spots).map((x) => x.rsv); return r.includes("已訂位") && !r.includes("要訂位"); }], ["決定網卡、eSIM 還是漫遊"]]],
+  ["1 週前", 7, [[PREP_ALL[2]], ["換外幣（或確認可以海外提款的卡）", (t) => t.wallet.length > 0], ["交通卡加到手機錢包（Suica／PASMO 等）"], ["看天氣決定衣服", (t) => !!(t.loc && wxOf(t, t.start))], ["產生行李清單", (t) => t.pack.length > 0], [PREP_ALL[4]], ["跟家人說行程（可以用行程「分享」）"]]],
+  ["前一天", 1, [["手機、行動電源、相機充飽電"], ["線上報到、選位"], [PREP_ALL[5]], ["行李秤重（托運、手提）", (t) => !!(t.bagw && (t.bagw.chk || t.bagw.cab))], ["確認去機場的交通和時間"], ["下載離線包（票券、地圖）"], ["液體 100ml 以下裝夾鏈袋，行動電源放手提"]]],
+  ["出門前", 0, [["護照"], ["手機"], ["錢包（信用卡、外幣、台幣）"], ["機票／登機證"], ["充電線＋行動電源"], ["網卡／eSIM"], ["眼鏡、常用藥"], ["家門鑰匙"], ["關水、電、瓦斯，倒垃圾"]]],
+];
+function prepItems(t) {
+  const cc = ccOf(t), P = PREP[cc] || (EU_CC.includes(cc) ? PREP.EU : null);
+  return [...(P ? P[0].map(([x, url]) => [x, null, url]) : []), ...PREP_STAGES.flatMap(([, , l]) => l)];
+}
+const prepDone = (t, [x, auto]) => !!t.prep[x] || !!(auto && auto(t));
 function prepHtml(t) {
   const cc = ccOf(t), P = PREP[cc] || (EU_CC.includes(cc) ? PREP.EU : null);
-  const items = [...(P ? P[0] : []), ...PREP_ALL.map((x) => [x])];
-  const done = items.filter(([x]) => t.prep[x]).length;
+  const left = t.start ? daysLeft(t.start) : null, all = prepItems(t), done = all.filter((x) => prepDone(t, x)).length;
+  const cur = left == null ? -1 : left > 7 ? 0 : left > 1 ? 1 : left === 1 ? 2 : 3;
+  const row = ([x, auto, url]) => { const ok = prepDone(t, [x, auto]), a = !t.prep[x] && auto && auto(t);
+    return `<div class="row ${ok ? "done" : ""}" style="padding:5px 0;align-items:flex-start"><input type="checkbox" style="width:22px;height:22px;margin-top:1px" data-act="prep" data-key="${esc(x)}" ${ok ? "checked" : ""}><span class="sp">${esc(x)}${a ? ' <span class="mut">（已自動完成）</span>' : ""}${url ? ` <a href="${url}" target="_blank" rel="noopener">官網 ↗</a>` : ""}</span></div>`; };
   const name = (TAX[cc] || [])[0] || (t.loc && t.loc.country) || "";
-  return `<h2>✈️ 出發前準備${name ? "（" + esc(name) + "）" : ""} ${done}/${items.length}</h2><div class="card">
-    ${items.map(([x, url]) => `<div class="row ${t.prep[x] ? "done" : ""}" style="padding:4px 0;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:4px" data-act="prep" data-key="${esc(x)}" ${t.prep[x] ? "checked" : ""}><span class="sp">${esc(x)}${url ? ` <a href="${url}" target="_blank" rel="noopener">官網 ↗</a>` : ""}</span></div>`).join("")}
-    ${P ? `<div style="margin-top:8px">🔌 <b>插座</b>：${esc(P[1])}</div><div>🚃 <b>交通</b>：${esc(P[2])}</div>` : `<div class="mut" style="margin-top:6px">到 ⚙︎ 設定目的地城市，會列出該國的入境手續、插座、交通卡</div>`}
-    <div class="mut" style="margin-top:6px">入境規定常變動，出發前請到官方網站確認。</div></div>` + notesHtml(t);
+  let h = `<div class="card"><div class="row"><span class="sp">✈️ <b>行前準備</b> ${done}/${all.length}${left != null && left >= 0 ? `・距出發 <b>${left}</b> 天` : ""}</span>${t.prep && Object.keys(t.prep).length ? '<button class="sm" data-act="prepreset">全部重來</button>' : ""}</div><div class="bar"><i style="width:${(done / all.length) * 100}%"></i></div>
+    ${cur >= 0 && left >= 0 ? `<div class="mut" style="margin-top:4px">👉 現在該做：<b>${PREP_STAGES[cur][0]}</b>的項目${PREP_STAGES.slice(0, cur).some(([, , l]) => l.some((x) => !prepDone(t, x))) ? "（前面還有沒完成的）" : ""}</div>` : ""}</div>`;
+  if (P) { const l = P[0].map(([x, url]) => [x, null, url]); h += `<h2>🛂 入境手續${name ? "（" + esc(name) + "）" : ""} <span class="mut" style="font-weight:400">${l.filter((x) => prepDone(t, x)).length}/${l.length}</span></h2><div class="card">${l.map(row).join("")}<div style="margin-top:8px">🔌 <b>插座</b>：${esc(P[1])}</div><div>🚃 <b>交通</b>：${esc(P[2])}</div><div class="mut" style="margin-top:6px">入境規定常變動，出發前請到官方網站確認。</div></div>`; }
+  else h += `<div class="mut" style="margin-bottom:6px">到 ⚙︎ 設定目的地城市，會列出該國的入境手續、插座、交通卡</div>`;
+  PREP_STAGES.forEach(([st, , l], i) => {
+    const n = l.filter((x) => prepDone(t, x)).length, hot = i === cur;
+    h += `<h2>${i === 3 ? "🎒" : "🗓"} ${st}${i === 3 ? "・必帶最後檢查" : ""} <span class="mut" style="font-weight:400">${n}/${l.length}</span>${hot ? ' <span class="tag" style="background:var(--acc);color:#fff">現在</span>' : ""}</h2><div class="card" style="${hot ? "border-color:var(--acc)" : ""}">${l.map(row).join("")}</div>`;
+  });
+  return h + notesHtml(t);
 }
 function notesHtml(t) {
   const cc = ccOf(t), local = NOTES[cc] || (EU_CC.includes(cc) ? NOTES.EU : []);
@@ -2573,8 +2593,8 @@ const V = {
     h += `<div class="row" style="margin-bottom:10px"><button class="pri" data-act="quickexp" style="flex:1">＋ 記一筆</button><button data-act="voiceexp" title="語音記帳">🎤</button><label class="btn" style="margin:0;flex:1;text-align:center">📷 拍收據<input type="file" accept="image/*" capture="environment" id="ocrIn" hidden></label></div>`;
     const ended = t.end && today() > t.end;
     if (!t.start || days > 0) {
-      const cc = ccOf(t), P = PREP[cc] || (EU_CC.includes(cc) ? PREP.EU : null), total = (P ? P[0].length : 0) + PREP_ALL.length;
-      const done = Object.keys(t.prep || {}).length;
+      const cc = ccOf(t), P = PREP[cc] || (EU_CC.includes(cc) ? PREP.EU : null), total = prepItems(t).length;
+      const done = prepItems(t).filter((x) => prepDone(t, x)).length;
       if (days != null && days <= 7) h += `<div class="card row" data-act="offline"><span class="sp">📦 <b>出發前下載離線包</b><div class="mut">票券、收據、照片、地圖存到這台，在飛機上或沒網路也能看</div></span><span class="mut">›</span></div>`;
       h += `<div class="card row" data-act="gonotes"><span class="sp">✈️ <b>出發前準備・行前注意事項</b><div class="mut">入境手續、插座、交通卡、搭機與回台規定・已完成 ${Math.min(done, total)}/${total}</div></span><span class="mut">›</span></div>`;
     }
@@ -3020,6 +3040,7 @@ document.addEventListener("click", async (e) => {
       if (navigator.share) return navigator.share({ title: t.name, text: txt }).catch(() => {});
       return navigator.clipboard.writeText(txt).then(() => alert("已複製，可以貼到 LINE"), () => prompt("複製下面文字", txt));
     }
+    else if (act === "prepreset") { if (!confirm("行前準備全部取消打勾？")) return; const old = t.prep; t.prep = {}; save(); render(); return toast("已全部重來", "復原", () => { t.prep = old; save(); render(); }); }
     else if (act === "prep") { if (el.checked) t.prep[el.dataset.key] = 1; else delete t.prep[el.dataset.key]; }
     else if (act === "print") return window.print();
     else if (act === "share") {
