@@ -1227,9 +1227,8 @@ function summary(t) {
   let km = 0; const byD = {}; t.itin.forEach((i) => (byD[i.date] ||= []).push(i));
   Object.values(byD).forEach((arr) => arr.sort(byOrd).forEach((x, n) => { if (n) km += distKm(arr[n - 1], x) || 0; }));
   const visited = t.spots.filter((s) => s.done).length;
-  const ws = diaryDays(t).filter((d) => d <= today() || t.diary.some((x) => x.date === d && +x.steps > 0)).map((d) => walkOf(t, d)).filter(Boolean), steps = ws.reduce((s, w) => s + w.steps, 0), walkEst = ws.some((w) => w.est);
   return {
-    days, total, top, big, maxDay, km, visited, steps, walkEst, walkKm: ws.reduce((s, w) => s + w.km, 0),
+    days, total, top, big, maxDay, km, visited,
     spots: t.spots.length, itin: t.itin.length,
     bought: t.shop.filter((x) => x.ok).length, shop: t.shop.length,
     tkUsed: t.tickets.filter((k) => k.used).length,
@@ -1489,85 +1488,6 @@ function hotelConn(h, item, dir) {
 }
 
 // ===== 旅行日記 =====
-function diaryDays(t) {
-  const set = new Set([...tripDays(t), ...t.itin.map((i) => i.date), ...t.diary.map((d) => d.date)].filter(Boolean));
-  return [...set].sort();
-}
-// ===== 走路: 手機的計步資料網頁讀不到 → 自己填(看健康 App), 沒填就依行程估算 =====
-const STEP_KM = 1350; // 每公里約幾步
-function walkKm(t, d) {
-  const seq = routeSeq(t, d); let km = 0;
-  for (let k = 0; k < seq.length; k++) {
-    const i = seq[k].i, c = icatOf(i);
-    if (seq[k].dest && !isMulti(i)) km += { 景點: 1.2, 購物: 1.5, 美食: 0.2, 交通: 0.3 }[c] ?? 0.5; // 在點內走動
-    if (!k || !seq[k].dest) continue;
-    const a = seq[k - 1].o, tv = travelMin(a, i), mode = routeMode(i);
-    if (mode === "walking") km += tv && tv.g && i.gtravel.km ? i.gtravel.km : (distKm(a, i) || 0) * 1.3;
-    else if (tv && tv.steps && tv.steps.length) km += tv.steps.filter((x) => x.w).reduce((s, x) => s + x.min, 0) * 4.5 / 60;
-    else if (mode === "transit") km += Math.min(1, (distKm(a, i) || 0) * 1.3) || 0.6; // 走到車站、出站
-  }
-  return km;
-}
-function walkOf(t, d) {
-  const e = t.diary.find((x) => x.date === d);
-  if (e && +e.steps > 0) return { steps: +e.steps, km: +e.steps / STEP_KM, est: false };
-  const km = walkKm(t, d); return km ? { steps: Math.round((km * STEP_KM) / 100) * 100, km, est: true } : null;
-}
-const walkTxt = (w) => w ? `👣 ${w.est ? "約 " : ""}${fmt(w.steps)} 步・${fmt(w.km, 1)} km${w.est ? "（依行程估算）" : ""}` : "";
-function diaryHtml(t) {
-  const days = diaryDays(t);
-  if (!days.length) return `<div class="empty">到 ⚙︎ 設定旅程日期，就能每天寫日記</div>`;
-  const startD = t.start ? new Date(t.start + "T00:00") : null;
-  const ws = days.map((d) => walkOf(t, d)).filter(Boolean), wsum = ws.reduce((s, w) => s + w.steps, 0);
-  return `<div class="row noprint" style="margin-bottom:8px"><span class="sp mut">${wsum ? `整趟 👣 ${ws.some((w) => w.est) ? "約 " : ""}${fmt(wsum)} 步・${fmt(ws.reduce((s, w) => s + w.km, 0), 1)} km` : "每天寫幾句、放幾張照片，回來就是遊記"}</span><button class="sm" data-act="album">🖼 相簿</button><button class="sm" data-act="video">🎬 影片</button><label class="btn sm" style="margin:0">📷 照片自動分日<input type="file" accept="image/*" multiple id="diaryAuto" hidden></label><button class="sm" data-act="print">列印／存 PDF</button></div><div class="mut" id="diaryAutoSt"></div>
-    <h2 class="printonly" style="display:none">${esc(t.name)} 旅行日記</h2>` +
-    days.map((d) => {
-      const e = t.diary.find((x) => x.date === d), n = startD ? Math.round((new Date(d + "T00:00") - startD) / 864e5) + 1 : null;
-      const its = t.itin.filter((i) => i.date === d).sort(byOrd).map((i) => i.title);
-      const spent = t.exp.filter((x) => x.date === d).reduce((s, x) => s + (toHome(x.amt, x.cur) || 0), 0), wk = walkOf(t, d);
-      return `<div class="card" style="break-inside:avoid"><div class="row"><h3 class="sp">${n > 0 ? `Day ${n}・` : ""}${d} (${dayName(d)})</h3><span class="wx">${wxTxt(wxOf(t, d))}</span><button class="sm noprint" data-act="diary" data-d="${d}">✏️ ${e ? "編輯" : "寫日記"}</button></div>
-        ${its.length || spent ? `<div class="mut">${its.length ? "📍 " + its.map(esc).join(" → ") : ""}${spent ? `${its.length ? "<br>" : ""}💰 ${fmt(spent)} ${t.home}` : ""}</div>` : ""}
-        ${wk ? `<div class="mut">${walkTxt(wk)}</div>` : ""}
-        ${e && e.text ? `<div style="white-space:pre-wrap;margin-top:6px">${esc(e.text)}</div>` : ""}
-        ${e && e.photos.length ? `<div class="photos">${e.photos.map((p) => `<img data-fid="${p.fileId}" alt="">`).join("")}</div>` : ""}</div>`;
-    }).join("");
-}
-function openDiary(t, d) {
-  let e = t.diary.find((x) => x.date === d);
-  const photos = e ? [...e.photos] : [];
-  const dlg = $("#dlg"), f = $("#dlgForm");
-  let text = e ? e.text : "", steps = e ? e.steps : "";
-  const draw = () => {
-    f.innerHTML = `<h3>📔 ${d} (${dayName(d)})</h3>
-      <textarea name="text" style="min-height:160px" placeholder="今天去了哪、吃了什麼、印象最深的事…">${esc(text)}</textarea>
-      <label>今天走了幾步（看 iPhone「健康」或手錶，選填）</label><input type="number" name="steps" min="0" value="${steps || ""}" placeholder="${(() => { const w = walkKm(t, d); return w ? "沒填就用行程估算：約 " + fmt(Math.round(w * STEP_KM / 100) * 100) + " 步" : "例：15000"; })()}">
-      <label>照片（可一次選多張）</label><input type="file" name="ph" accept="image/*" multiple>
-      <div class="photos">${photos.map((p, i) => `<div style="position:relative"><img data-fid="${p.fileId}" alt=""><button type="button" class="sm del" data-rmph="${i}" style="position:absolute;top:2px;right:2px;padding:0 6px">✕</button></div>`).join("")}</div>
-      <div class="row" style="margin-top:14px">${e ? '<button value="del" class="del">刪除</button>' : ""}<span class="sp"></span><button value="cancel" formnovalidate>取消</button><button value="ok" class="pri">儲存</button></div>`;
-    fillThumbs();
-    f.elements.text.oninput = (ev) => (text = ev.target.value);
-    f.elements.steps.oninput = (ev) => (steps = ev.target.value);
-    f.querySelectorAll("[data-rmph]").forEach((b) => (b.onclick = () => { photos.splice(+b.dataset.rmph, 1); draw(); }));
-    f.elements.ph.onchange = async (ev) => {
-      for (const file of ev.target.files) photos.push(await storeFile(t, file));
-      draw();
-    };
-  };
-  draw();
-  dlg.onclose = () => {
-    const act = dlg.returnValue; dlg.returnValue = "";
-    const old = e ? e.photos : [];
-    const drop = (keep) => [...old, ...photos].filter((p, i, a) => a.indexOf(p) === i && !keep.includes(p)).forEach((p) => { fdel(p.fileId); window.TravelSync && TravelSync.delFile(t, p.fileId); });
-    if (act === "del") { if (!confirm("刪除這天的日記？")) return; drop([]); t.diary = t.diary.filter((x) => x !== e); save(); render(); return; }
-    if (act !== "ok") { drop(old); return; } // 取消: 丟掉這次新加的照片
-    const text = (new FormData(f).get("text") || "").trim();
-    drop(photos);
-    if (!e) { e = { id: uid(), date: d }; t.diary.push(e); }
-    e.text = text; e.photos = photos; e.steps = Math.max(0, Math.round(+steps || 0)) || "";
-    save(); render();
-  };
-  dlg.showModal();
-}
 
 // ===== 行前行李整理 =====
 const PACK_STYLES = {
@@ -2002,41 +1922,6 @@ function feeHtml(t, d) {
   return `<div class="row mut noprint" style="margin:-4px 0 8px"><span class="sp">🚃 交通費 ${t.cur === "JPY" ? "¥" : ""}${fmt(f)}${t.cur === "JPY" ? "" : " " + t.cur}／人${t.people.length > 1 ? `・${t.people.length} 人 ${fmt(f * t.people.length)}` : ""}</span>${done ? "✓ 已記帳" : `<button class="sm" data-act="feeexp" data-d="${d}">記帳</button>`}</div>`;
 }
 
-// ===== 照片自動分到日記(讀 EXIF 拍攝日期, 沒有就用檔案日期) =====
-async function exifDate(file) {
-  try {
-    const v = new DataView(await file.slice(0, 256 * 1024).arrayBuffer());
-    if (v.getUint16(0) !== 0xffd8) return null;
-    for (let p = 2; p < v.byteLength - 4;) {
-      const mk = v.getUint16(p), sz = v.getUint16(p + 2);
-      if (mk === 0xffe1 && v.getUint32(p + 4) === 0x45786966) {
-        const b = p + 10, le = v.getUint16(b) === 0x4949, u16 = (o) => v.getUint16(b + o, le), u32 = (o) => v.getUint32(b + o, le);
-        const str = (o) => { let s = ""; for (let i = 0; i < 19; i++) s += String.fromCharCode(v.getUint8(b + o + i)); return s; };
-        const find = (ifd, tag) => { const n = u16(ifd); for (let i = 0; i < n; i++) { const e = ifd + 2 + i * 12; if (u16(e) === tag) return e; } return -1; };
-        let e = find(u32(4), 0x8769), dt = null;
-        if (e >= 0) { const x = find(u32(e + 8), 0x9003); if (x >= 0) dt = str(u32(x + 8)); }
-        if (!dt) { const x = find(u32(4), 0x0132); if (x >= 0) dt = str(u32(x + 8)); }
-        return dt && /^\d{4}:\d\d:\d\d/.test(dt) ? dt.slice(0, 10).replace(/:/g, "-") : null;
-      }
-      if ((mk & 0xff00) !== 0xff00) break;
-      p += 2 + sz;
-    }
-  } catch (e) { }
-  return null;
-}
-async function diaryAuto(t, files) {
-  const days = diaryDays(t), st = $("#diaryAutoSt"); let ok = 0, skip = 0, n = 0;
-  for (const file of files) {
-    if (st) st.textContent = `處理中 ${++n}/${files.length}…`;
-    const d = (await exifDate(file)) || new Date(file.lastModified).toLocaleDateString("sv");
-    if (!days.includes(d)) { skip++; continue; }
-    let e = t.diary.find((x) => x.date === d); if (!e) { e = { id: uid(), date: d, text: "", photos: [] }; t.diary.push(e); }
-    try { e.photos.push(await storeFile(t, file)); ok++; } catch (err) { skip++; }
-  }
-  save(); render();
-  if (st) st.textContent = "";
-  alert(`已放進日記 ${ok} 張` + (skip ? `\n${skip} 張沒放（拍攝日期不在旅程期間，或檔案無法讀取）` : ""));
-}
 
 // ===== 離線包: 票券/收據/照片從雲端抓回來、匯率天氣更新、地圖逐日預存 =====
 async function offlinePack(t) {
@@ -2270,24 +2155,6 @@ function taxRemindHtml(t) {
     <div class="row" style="margin-top:6px"><button class="sm" data-act="gotax">看退稅收據</button></div></div>`;
 }
 
-// ===== 隨手拍打卡: 拍照 → 記時間位置 → 放進今天日記 =====
-async function checkin(t, file) {
-  const tn = tripNow(t), d = tn.d, tm = hm(tn.m);
-  toast("📸 打卡中…");
-  const pos = await new Promise((res) => navigator.geolocation ? navigator.geolocation.getCurrentPosition((p) => res(p.coords), () => res(null), { enableHighAccuracy: true, timeout: 8000 }) : res(null));
-  let place = "";
-  if (pos) {
-    const near = [...t.itin.filter((i) => i.lat != null), ...t.spots.filter((s) => s.lat != null)].map((x) => [x, distKm({ lat: pos.latitude, lon: pos.longitude }, x)]).sort((a, b) => a[1] - b[1])[0];
-    if (near && near[1] < 0.4) { place = near[0].title || near[0].name; if (near[0].prio && !near[0].done) near[0].done = true; }
-    else try { const j = await (await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=18&accept-language=zh-TW&lat=${pos.latitude}&lon=${pos.longitude}`)).json(); place = j.name || (j.display_name || "").split(",")[0]; } catch (e) { }
-  }
-  const ph = file ? await storeFile(t, file) : null;
-  if (ph && pos) { ph.lat = +pos.latitude.toFixed(5); ph.lon = +pos.longitude.toFixed(5); }
-  let e = t.diary.find((x) => x.date === d); if (!e) { e = { id: uid(), date: d, text: "", photos: [] }; t.diary.push(e); }
-  if (ph) e.photos.push(ph);
-  e.text = (e.text ? e.text + "\n" : "") + `${tm} 📍 ${place || (pos ? `${pos.latitude.toFixed(4)},${pos.longitude.toFixed(4)}` : "（沒有定位）")}`;
-  save(); render(); toast(`已打卡：${tm} ${place || ""}`.trim());
-}
 
 // ===== 附近: 廁所/便利商店/ATM/置物櫃/車站/藥局(OpenStreetMap Overpass) =====
 const NEAR = [["廁所", "🚻", 'nwr["amenity"="toilets"]', { JP: "トイレ", KR: "화장실" }, "toilet"], ["便利商店", "🏪", 'nwr["shop"="convenience"]', { JP: "コンビニ", KR: "편의점" }, "convenience store"],
@@ -2368,33 +2235,6 @@ function tcardHtml(t) {
     <div class="mut" style="margin-top:4px">加值不算花費（每次搭車才算），避免重複計算</div></div>`;
 }
 
-// ===== 相簿: 日記照片依天數排, 全螢幕滑著看 =====
-async function openAlbum(t, start) {
-  const startD = t.start ? new Date(t.start + "T00:00") : null;
-  const ps = diaryDays(t).flatMap((d) => { const e = t.diary.find((x) => x.date === d); return e ? e.photos.map((p) => ({ ...p, d })) : []; });
-  if (!ps.length) return alert("日記裡還沒有照片");
-  let i = Math.max(0, start || 0);
-  const ov = document.createElement("div");
-  ov.style.cssText = "position:fixed;inset:0;background:#000;z-index:9999;display:flex;flex-direction:column;color:#fff;touch-action:pan-y";
-  ov.innerHTML = `<div style="display:flex;align-items:center;padding:10px 14px;gap:10px"><span id="alCap" style="flex:1"></span><button id="alX" style="background:none;border:0;color:#fff;font-size:26px">✕</button></div>
-    <div style="flex:1;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden"><img id="alImg" style="max-width:100%;max-height:100%;object-fit:contain"><button id="alP" style="position:absolute;left:4px;background:rgba(255,255,255,.15);border:0;color:#fff;font-size:28px;border-radius:50%;width:44px;height:44px">‹</button><button id="alN" style="position:absolute;right:4px;background:rgba(255,255,255,.15);border:0;color:#fff;font-size:28px;border-radius:50%;width:44px;height:44px">›</button></div>`;
-  document.body.appendChild(ov);
-  const urls = {};
-  const show = async () => {
-    const p = ps[i], n = startD ? Math.round((new Date(p.d + "T00:00") - startD) / 864e5) + 1 : null;
-    $("#alCap").textContent = `${n > 0 ? `Day ${n}・` : ""}${p.d.slice(5)}（${dayName(p.d)}）　${i + 1} / ${ps.length}`;
-    let u = urls[p.fileId];
-    if (!u) { let b = await fget(p.fileId); if (!b && window.TravelSync && TravelSync.user) { b = await TravelSync.getFile(t, p.fileId).catch(() => null); if (b) await fput(p.fileId, b); } u = urls[p.fileId] = b ? URL.createObjectURL(b) : ""; }
-    if (ps[i] === p) $("#alImg").src = u;
-  };
-  const go = (k) => { i = (i + k + ps.length) % ps.length; show(); };
-  const close = () => { ov.remove(); Object.values(urls).forEach((u) => u && URL.revokeObjectURL(u)); removeEventListener("keydown", key); };
-  const key = (e) => { if (e.key === "ArrowRight") go(1); else if (e.key === "ArrowLeft") go(-1); else if (e.key === "Escape") close(); };
-  $("#alX").onclick = close; $("#alP").onclick = () => go(-1); $("#alN").onclick = () => go(1);
-  let x0 = null; ov.ontouchstart = (e) => (x0 = e.touches[0].clientX); ov.ontouchend = (e) => { if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1); x0 = null; };
-  addEventListener("keydown", key);
-  show();
-}
 
 // ===== 當地節日、活動: 國定假日(Nager.Date) + 常見祭典/連假 =====
 S.hol ||= {};
@@ -2517,78 +2357,6 @@ function closeCheck(t) {
   }
 }
 
-// ===== 旅程影片: 標題 → 路線動畫 → 照片(緩慢放大) → 結尾, 用 canvas 錄成影片 =====
-async function makeVideo(t) {
-  if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) return alert("這個瀏覽器不支援產生影片（請用新版 Chrome 或 Safari）");
-  const ps = diaryDays(t).flatMap((d) => { const e = t.diary.find((x) => x.date === d); return e ? e.photos.map((p) => ({ ...p, d, text: (e.text || "").split("\n")[0] })) : []; }).slice(0, 40);
-  const pts = t.itin.filter((i) => i.lat != null && i.date).sort((a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || "")));
-  if (!ps.length && pts.length < 2) return alert("日記裡要有照片，或行程要有定位，才能做影片");
-  const W = 720, H = 1280, cv = document.createElement("canvas"); cv.width = W; cv.height = H; const g = cv.getContext("2d");
-  const ov = document.createElement("div");
-  ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;gap:10px";
-  ov.innerHTML = `<div id="vSt">準備照片…</div><canvas id="vPrev" width="180" height="320" style="border-radius:8px"></canvas><button id="vX" style="padding:8px 16px">取消</button>`;
-  document.body.appendChild(ov); let stop = false; $("#vX").onclick = () => { stop = true; };
-  const imgs = [];
-  for (const p of ps) {
-    let b = await fget(p.fileId); if (!b && window.TravelSync && TravelSync.user) b = await TravelSync.getFile(t, p.fileId).catch(() => null);
-    if (b) try { imgs.push({ ...p, im: await createImageBitmap(b) }); } catch (e) { }
-    if (stop) return ov.remove();
-  }
-  const startD = t.start ? new Date(t.start + "T00:00") : null, dayN = (d) => startD ? Math.round((new Date(d + "T00:00") - startD) / 864e5) + 1 : null;
-  const font = (px, w = 700) => `${w} ${px}px system-ui, -apple-system, "PingFang TC", "Noto Sans TC", sans-serif`;
-  const bg = () => { const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, "#0f766e"); gr.addColorStop(1, "#0b1320"); g.fillStyle = gr; g.fillRect(0, 0, W, H); };
-  const text = (s, y, px, a = 1, w) => { g.globalAlpha = a; g.fillStyle = "#fff"; g.font = font(px, w); g.textAlign = "center"; g.fillText(s, W / 2, y); g.globalAlpha = 1; };
-  const flags = [...new Set(S.trips.filter((x) => x.id === t.id).map((x) => (x.loc && x.loc.cc) || CUR2CC[x.cur]))].map(flag).join(" ");
-  // 路線投影
-  const la = pts.map((p) => p.lat), lo = pts.map((p) => p.lon), mnA = Math.min(...la), mxA = Math.max(...la), mnO = Math.min(...lo), mxO = Math.max(...lo);
-  const k = Math.cos(((mnA + mxA) / 2) * Math.PI / 180), sc = Math.min((W - 140) / Math.max(1e-4, (mxO - mnO) * k), (H - 520) / Math.max(1e-4, mxA - mnA));
-  const P = (p) => [W / 2 + (p.lon - (mnO + mxO) / 2) * k * sc, H / 2 + 40 - (p.lat - (mnA + mxA) / 2) * sc];
-  const scenes = [{ dur: 2500, draw: (f) => { bg(); text(flags, H / 2 - 120, 80, Math.min(1, f * 3)); text(t.name, H / 2, 64, Math.min(1, f * 2)); text(`${t.start || ""} ～ ${t.end || ""}`, H / 2 + 70, 32, Math.min(1, f * 2), 400); } }];
-  if (pts.length >= 2) scenes.push({ dur: 5000, draw: (f) => {
-    bg(); text("🗺 這趟走過的路", 160, 40);
-    const n = Math.max(1, Math.floor(f * 1.15 * (pts.length - 1)) + 1), cur = Math.min(pts.length - 1, n);
-    g.strokeStyle = "rgba(255,255,255,.9)"; g.lineWidth = 5; g.lineJoin = "round"; g.beginPath();
-    pts.slice(0, cur + 1).forEach((p, i) => { const [x, y] = P(p); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke();
-    pts.slice(0, cur + 1).forEach((p, i) => { const [x, y] = P(p); g.fillStyle = i === cur ? "#fbbf24" : "#5eead4"; g.beginPath(); g.arc(x, y, i === cur ? 12 : 7, 0, 7); g.fill(); });
-    const c = pts[cur]; text(`Day ${dayN(c.date) || ""}・${c.title}`, H - 200, 34, 1, 500);
-  } });
-  imgs.forEach((p, i) => scenes.push({ dur: 2600, draw: (f) => {
-    g.fillStyle = "#000"; g.fillRect(0, 0, W, H);
-    const z = 1 + 0.08 * f, r = Math.max(W / p.im.width, H / p.im.height) * z, w = p.im.width * r, h = p.im.height * r;
-    g.globalAlpha = Math.min(1, f * 5, (1 - f) * 6 + 0.3); g.drawImage(p.im, (W - w) / 2 - (i % 2 ? 1 : -1) * 20 * f, (H - h) / 2, w, h); g.globalAlpha = 1;
-    const gr = g.createLinearGradient(0, H - 300, 0, H); gr.addColorStop(0, "rgba(0,0,0,0)"); gr.addColorStop(1, "rgba(0,0,0,.75)"); g.fillStyle = gr; g.fillRect(0, H - 300, W, 300);
-    text(`Day ${dayN(p.d) || ""}・${p.d.slice(5)}（${dayName(p.d)}）`, H - 130, 36); if (p.text) text(p.text.slice(0, 22), H - 80, 28, 0.9, 400);
-  } }));
-  const places = new Set(t.itin.map((i) => i.title)).size;
-  scenes.push({ dur: 2500, draw: (f) => { bg(); text(`${tripDays(t).length || diaryDays(t).length} 天・${places} 個地方・${imgs.length} 張照片`, H / 2 - 20, 40, Math.min(1, f * 3)); text("下次見 👋", H / 2 + 60, 48, Math.min(1, f * 2)); } });
-  const mime = ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m)) || "";
-  const rec = new MediaRecorder(cv.captureStream(30), mime ? { mimeType: mime, videoBitsPerSecond: 4e6 } : {}), chunks = [];
-  rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-  const done = new Promise((r) => (rec.onstop = r));
-  rec.start(500);
-  const total = scenes.reduce((s, x) => s + x.dur, 0), prev = $("#vPrev").getContext("2d");
-  let t0 = performance.now();
-  await new Promise((res) => {
-    const frame = (now) => {
-      let el = now - t0; if (stop || el >= total) return res();
-      let i = 0; while (el >= scenes[i].dur) { el -= scenes[i].dur; i++; }
-      scenes[i].draw(el / scenes[i].dur); prev.drawImage(cv, 0, 0, 180, 320);
-      $("#vSt").textContent = `產生影片中… ${Math.round(((now - t0) / total) * 100)}%（請不要切換畫面）`;
-      requestAnimationFrame(frame);
-    };
-    requestAnimationFrame(frame);
-  });
-  rec.stop(); await done; ov.remove(); imgs.forEach((p) => p.im.close && p.im.close());
-  if (stop) return;
-  const ext = /mp4/.test(rec.mimeType || mime) ? "mp4" : "webm", blob = new Blob(chunks, { type: (rec.mimeType || mime || "video/webm").split(";")[0] }), url = URL.createObjectURL(blob);
-  const file = new File([blob], `${t.name}.${ext}`, { type: blob.type }), dlg = $("#dlg");
-  dlg.onclose = () => URL.revokeObjectURL(url);
-  $("#dlgForm").innerHTML = `<h3>🎬 ${esc(t.name)}</h3><video src="${url}" controls playsinline style="width:100%;max-height:60vh;border-radius:8px;background:#000"></video>
-    <div class="mut">${(blob.size / 1e6).toFixed(1)} MB・${ext.toUpperCase()}${ext === "webm" ? "（iPhone 相簿不能直接開 WebM，可以用電腦版 Chrome 轉檔或直接分享到 LINE）" : ""}</div>
-    <div class="row" style="margin-top:12px"><a class="btn" href="${url}" download="${esc(t.name)}.${ext}" style="text-decoration:none">⬇ 下載</a>${navigator.canShare && navigator.canShare({ files: [file] }) ? '<button type="button" class="pri" id="vShare">分享</button>' : ""}<span class="sp"></span><button value="cancel">關閉</button></div>`;
-  if ($("#vShare")) $("#vShare").onclick = () => navigator.share({ files: [file], title: t.name }).catch(() => {});
-  dlg.showModal();
-}
 
 const pushSettings = () => { if (window.TravelSync && TravelSync.user && TravelSync.putSettings) TravelSync.putSettings(TravelApp.settings()); };
 // ===== 畫面 =====
@@ -2971,8 +2739,6 @@ function render() {
   if ((S.tab === "tickets" && filt.tk === "優惠券") || (S.tab === "exp" && filt.ex === "收據整理") || (S.tab === "itin" && filt.iv === "日記") || (S.tab === "pack" && (filt.pk || "必買") === "必買")) fillThumbs();
   if (S.tab === "itin" && (filt.iv || "行事曆") === "行事曆") { calScroll(); gRouteDay(t, filt.cd); autoGeoDay(t, filt.cd); autoStations(t, filt.cd); }
   if (S.tab === "itin" && filt.iv === "清單") [...new Set(t.itin.map((i) => i.date))].forEach((d) => { if (d) { if (S.gkey) gRouteDay(t, d); autoStations(t, d); } });
-  if ($("#ckIn")) $("#ckIn").onchange = (e) => { const f = e.target.files[0]; if (f) checkin(T(), f).catch((err) => alert("打卡失敗：" + err.message)); };
-  if ($("#diaryAuto")) $("#diaryAuto").onchange = (e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) diaryAuto(T(), fs); };
   if ($("#ocrIn")) $("#ocrIn").onchange = (e) => { const f = e.target.files[0]; if (f) doOcr(f).catch((err) => alert("失敗：" + err.message)); };
   loadWx(t);
 }
@@ -3022,7 +2788,6 @@ document.addEventListener("click", async (e) => {
     else if (act === "calprev" || act === "calnext") { const ds = calDays(t), k = ds.indexOf(filt.cd) + (act === "calnext" ? 1 : -1); if (ds[k]) filt.cd = ds[k]; calScroll.done = null; return render(); }
     else if (act === "route") { const sq = routeSeq(t, filt.cd), k = +el.dataset.k; return sq[k] && showRoute(sq[k - 1].o, sq[k].i); }
     else if (act === "shelter") { filt.tool = "附近"; goTab("fx"); return findNear(t, "避難所"); }
-    else if (act === "video") return makeVideo(t);
     else if (act === "notifyok") { if (!("Notification" in window)) return alert("這個瀏覽器不支援通知（iPhone 要先「加入主畫面」再從主畫面開啟）"); return Notification.requestPermission().then((p) => { toast(p === "granted" ? "已開啟通知" : "沒有允許通知"); render(); }); }
     else if (act === "near") return findNear(t, el.dataset.k);
     else if (act === "trgo") { trState.src = $("#trSrc").value.trim(); if (!trState.src) return; trState.busy = "翻譯中…"; trState.out = ""; render(); trText(trState.src, t).then((o) => { trState.out = o; trState.busy = o ? "" : "翻譯失敗"; }).catch(() => { trState.busy = "翻譯失敗（需要網路）"; }).finally(render); return; }
@@ -3033,13 +2798,6 @@ document.addEventListener("click", async (e) => {
     else if (act === "fpdel") { const id = el.dataset.id, old = S.fp; S.fp = S.fp.filter((x) => x.id !== id); saveLocal(); render(); return toast("已刪除", "復原", () => { S.fp = old; saveLocal(); render(); }); }
     else if (act === "ecard") return showECard(t, el.dataset.m);
     else if (act === "voiceexp") return voiceExp(t);
-    else if (act === "stepset") {
-      const d = el.dataset.d, e0 = t.diary.find((x) => x.date === d), w = walkKm(t, d);
-      const v = prompt(`${d.slice(5)} 走了幾步？（看 iPhone「健康」或手錶；清空 = 用行程估算${w ? "：約 " + fmt(Math.round(w * STEP_KM / 100) * 100) + " 步" : ""}）`, e0 && e0.steps ? e0.steps : "");
-      if (v == null) return;
-      let e = e0; if (!e) { e = { id: uid(), date: d, text: "", photos: [] }; t.diary.push(e); }
-      e.steps = Math.max(0, Math.round(+String(v).replace(/[^\d]/g, "") || 0)) || ""; save(); return render();
-    }
     else if (act === "optday") return optimizeDay(t, filt.cd);
     else if (act === "feeexp") { const d = el.dataset.d, f = feeOf(t, d); return openForm("exp", null, null, { date: d, cat: "交通", amt: f * t.people.length, cur: t.cur === "CNY" ? "CNY" : "JPY", note: feeNote(d), ...(t.tcard.length ? { pay: "交通卡" } : {}) }); }
     else if (act === "gocal") { filt.iv = "行事曆"; filt.cd = el.dataset.d; return goTab("itin"); }
@@ -3059,7 +2817,6 @@ document.addEventListener("click", async (e) => {
     else if (act === "gonotes") { filt.pk = "出發準備"; S.ui = { ...(S.ui || {}), pk: "出發準備" }; return goTab("pack"); }
     else if (act === "quickexp") return openForm("exp");
     else if (act === "expall") { filt.expAll = true; return render(); }
-    else if (act === "diary") return openDiary(t, el.dataset.d);
     else if (act === "settleshare") {
       const txt = settleText(t);
       if (navigator.share) return navigator.share({ title: t.name + " 分帳", text: txt }).catch(() => {});
@@ -3071,7 +2828,6 @@ document.addEventListener("click", async (e) => {
     else if (act === "addwallet") return openForm("wallet");
     else if (act === "addtcard") return openForm("tcard");
     else if (act === "tcardlist") { filt.tcl = !filt.tcl; return render(); }
-    else if (act === "album") return openAlbum(t);
     else if (act === "shopimg") return showShopImg(t, t.shop.find((y) => y.id === id));
     else if (act === "cpshow") return showCoupon(t, t.coupons.find((y) => y.id === id));
     else if (act === "cptog") { const c = t.coupons.find((y) => y.id === id); c.used = !c.used; }
@@ -3195,7 +2951,6 @@ function openSearch() {
     const [kind, id] = h.dataset.hit.split(":"), x = t[kind].find((y) => y.id === id);
     dlg.close("cancel");
     const tab = { itin: "itin", spots: "itin", books: "books", tickets: "tickets", coupons: "tickets", exp: "exp", shop: "pack", diary: "itin", emerg: "fx" }[kind];
-    if (kind === "diary") { filt.iv = "日記"; goTab("itin"); return setTimeout(() => openDiary(t, x.date), 50); }
     if (kind === "coupons") filt.tk = "優惠券"; if (kind === "tickets") filt.tk = "票券"; if (kind === "shop") filt.pk = "必買"; if (kind === "emerg") filt.tool = "緊急"; if (kind === "exp") filt.ex = "記帳"; if (kind === "itin") filt.iv = "清單"; if (kind === "spots") filt.iv = "景點";
     goTab(tab); setTimeout(() => openForm(kind, x), 50);
   };
