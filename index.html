@@ -2622,7 +2622,7 @@ const V = {
     const live = t.start && t.end && tripNow(t).d >= daysBefore(t.start, 3) && tripNow(t).d <= t.end;
     if (live && ccOf(t) === "JP") loadEq();
     h += eqHtml(t) + nextStopHtml(t) + taxRemindHtml(t) + tripWxAlertHtml(t);
-    if (t.start && t.end && tripNow(t).d >= t.start && tripNow(t).d <= t.end) h += `<div class="row" style="margin-bottom:10px"><button data-act="ecard" data-m="taxi" style="flex:1">🚕 回飯店</button><button data-act="ecard" data-m="med" style="flex:1">🆘 緊急卡</button><label class="btn" style="margin:0;flex:1;text-align:center">📸 打卡<input type="file" accept="image/*" capture="environment" id="ckIn" hidden></label></div>`;
+    if (t.start && t.end && tripNow(t).d >= t.start && tripNow(t).d <= t.end) h += `<div class="row" style="margin-bottom:10px"><button data-act="ecard" data-m="taxi" style="flex:1">🚕 回飯店</button><button data-act="ecard" data-m="med" style="flex:1">🆘 緊急卡</button></div>`;
     const tn = tripNow(t).d, daily = dailyBudget(t);
     if (daily && tripDays(t).includes(tn)) {
       const td = t.exp.filter((e) => e.date === tn).reduce((s, e) => s + (toHome(e.amt, e.cur) || 0), 0), lf = daily - td, r = rate(t.home, t.cur);
@@ -2664,10 +2664,10 @@ const V = {
     return h;
   },
   itin(t) {
+    if (filt.iv === "日記") filt.iv = "行事曆"; // 日記分頁已拿掉
     const mode = filt.iv || "行事曆";
-    let h = `<div class="row noprint" style="margin-bottom:8px"><div class="chips tight" style="margin:0">${["行事曆", "清單", "景點", "地圖", "日記"].map((m) => `<button class="${m === mode ? "on" : ""}" data-f="iv" data-v="${m}">${{ 行事曆: "🕘", 清單: "📋", 景點: "📍", 地圖: "🗺", 日記: "📔" }[m]} ${m}${m === "景點" && unsched(t).length ? ` <span class="badge">${unsched(t).length}</span>` : ""}</button>`).join("")}</div><span class="sp"></span>
+    let h = `<div class="row noprint" style="margin-bottom:8px"><div class="chips tight" style="margin:0">${["行事曆", "清單", "景點", "地圖"].map((m) => `<button class="${m === mode ? "on" : ""}" data-f="iv" data-v="${m}">${{ 行事曆: "🕘", 清單: "📋", 景點: "📍", 地圖: "🗺", 日記: "📔" }[m]} ${m}${m === "景點" && unsched(t).length ? ` <span class="badge">${unsched(t).length}</span>` : ""}</button>`).join("")}</div><span class="sp"></span>
       ${mode === "清單" ? '<button class="sm" data-act="hourschk">🕘 檢查營業時間</button><button class="sm" data-act="share">分享</button><button class="sm" data-act="print">列印/PDF</button>' : ""}</div>`;
-    if (mode === "日記") return h + diaryHtml(t);
     if (mode === "景點") return h + `<div class="mut" style="margin-bottom:6px">想去的地方先收在這裡，按「加入行程」或在行事曆裡「排進今天」</div>` + V.spots(t);
     if (mode === "行事曆") return h + calHtml(t);
     if (mode === "地圖") {
@@ -3170,7 +3170,6 @@ const SEARCH = [
   ["tickets", "🎫 票券", (x) => [x.title, x.code, x.note], (x) => x.date || x.cat],
   ["exp", "💰 花費", (x) => [x.note, x.cat, x.store], (x) => `${x.date || ""} ${fmt(x.amt, 2)} ${x.cur}`],
   ["shop", "🛍 必買", (x) => [x.name, x.where, x.who, x.note], (x) => x.where || x.cat],
-  ["diary", "📔 日記", (x) => [x.text], (x) => x.date],
   ["coupons", "🎟 優惠券", (x) => [x.title, x.store, x.deal, x.code, x.note], (x) => x.deal || x.store],
   ["emerg", "🆘 緊急", (x) => [x.name, x.tel, x.note], (x) => x.tel],
 ];
