@@ -57,6 +57,8 @@ export function start(cfg) {
       return null;
     },
     delFile(t, fileId) { if (uid) F.deleteDoc(fileRef(t, fileId)).catch(() => {}); },
+    // 帳號設定(金鑰等): users/{uid}/meta/settings, 只有自己看得到
+    putSettings(d) { if (uid && d.mt) F.setDoc(F.doc(db, "users", uid, "meta", "settings"), d).catch(err); },
   });
   const fileRef = (t, fileId) => t.shared ? F.doc(db, "shared", t.id, "files", fileId) : F.doc(db, "users", uid, "files", fileId);
   const status = (s) => { S.state = s; };
@@ -86,6 +88,13 @@ export function start(cfg) {
     if (!u) return status("未登入");
     status("同步中…");
     colP = F.collection(db, "users", u.uid, "trips");
+    let gotSet = false;
+    unsubs.push(F.onSnapshot(F.doc(db, "users", u.uid, "meta", "settings"), (snap) => {
+      const d = snap.exists() ? snap.data() : null, mine = App.settings();
+      if (App.applySettings && App.applySettings(d)) { gotSet = true; return; }
+      if (!gotSet && mine.mt && (!d || (d.mt || 0) < mine.mt)) S.putSettings(mine); // 本機比較新(或雲端還沒有) → 上傳
+      gotSet = true;
+    }, () => {}));
     unsubs.push(F.onSnapshot(colP, (snap) => {
       for (const ch of snap.docChanges()) {
         if (ch.type === "removed") continue;

@@ -212,6 +212,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1000112370662:web:bcb195ec1513d002e65c27",
 };
 S.deleted ||= {};
+if ((S.gkey || S.me) && !S.setMt) S.setMt = 1; // 舊版本機設定: 給最舊的時間, 雲端有就以雲端為準
 // 每個旅程記最後修改時間 mt, 同步時以 mt 較新者為準
 const snap = {};
 const tripKey = (t) => JSON.stringify({ ...t, mt: 0 });
@@ -2047,11 +2048,11 @@ function showECard(t, mode) {
 }
 function editMe(t) {
   const me = S.me || {}, f = $("#dlgForm");
-  f.innerHTML = `<h3>🆘 緊急卡資料</h3><div class="mut">只存在這台裝置，不會同步到雲端。飯店地址會自動用當晚的住宿。</div>
+  f.innerHTML = `<h3>🆘 緊急卡資料</h3><div class="mut">登入同步時，會跟你自己的其他裝置共用（不會分享給旅伴）。飯店地址會自動用當晚的住宿。</div>
     ${ME_F.map(([k, lab]) => `<label>${lab}</label>${k === "contact" || k === "ins" || k === "meds" ? `<textarea name="${k}">${esc(me[k] || "")}</textarea>` : `<input name="${k}" value="${esc(me[k] || "")}">`}`).join("")}
     <div class="row" style="margin-top:14px"><span class="sp"></span><button type="button" id="meCancel">取消</button><button type="button" class="pri" id="meSave">儲存</button></div>`;
   $("#meCancel").onclick = () => showECard(t, "med");
-  $("#meSave").onclick = () => { const fd = new FormData(f); S.me = Object.fromEntries(ME_F.map(([k]) => [k, (fd.get(k) || "").trim()])); saveLocal(); showECard(t, "med"); };
+  $("#meSave").onclick = () => { const fd = new FormData(f); S.me = Object.fromEntries(ME_F.map(([k]) => [k, (fd.get(k) || "").trim()])); S.setMt = Date.now(); saveLocal(); pushSettings(); showECard(t, "med"); };
 }
 
 // ===== 語音記帳: 說「拉麵 980 円」 =====
@@ -2549,6 +2550,7 @@ async function makeVideo(t) {
   dlg.showModal();
 }
 
+const pushSettings = () => { if (window.TravelSync && TravelSync.user && TravelSync.putSettings) TravelSync.putSettings(TravelApp.settings()); };
 // ===== 畫面 =====
 const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["books", "✈️", "訂位"], ["tickets", "🎫", "票券"], ["exp", "💰", "花費"], ["fx", "🧰", "工具"], ["pack", "📝", "清單"]];
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
@@ -3181,10 +3183,10 @@ function openSettings() {
     <div class="mut">資料存在這台裝置的瀏覽器。換手機或備份請用匯出/匯入（票券檔案不含在 JSON 內）。</div>
     <div class="row" style="margin-top:6px"><button type="button" data-act="offline">📦 下載離線包</button><span class="mut sp">票券、照片、地圖存到這台，沒網路也能看</span></div>
     <div class="row" style="margin-top:6px"><button value="export" formnovalidate>匯出備份</button><label class="btn" style="margin:0;color:var(--fg)">匯入備份<input type="file" accept=".json" id="impFile" hidden></label></div>
-    <h3 style="margin-top:16px">Google 路線（這台裝置）</h3>
+    <h3 style="margin-top:16px">Google 路線</h3>
     <label>金鑰（選填，填了交通時間改用 Google 計算）</label><input name="gkey" value="${esc(S.gkey || "")}" placeholder="AIza…" autocomplete="off">
     <div class="mut">沒填就用距離粗估。本月這台裝置已查 <b>${S.gcnt && S.gcnt.m === new Date().toISOString().slice(0, 7) ? S.gcnt.n : 0}</b> 次（查過的會記住，改了才重查）</div>
-    <label>每月上限（這台裝置，0 = 不限）</label><input type="number" min="0" step="1" name="gcap" value="${S.gcap == null ? 1000 : S.gcap}">
+    <label>每台裝置每月上限（0 = 不限）</label><input type="number" min="0" step="1" name="gcap" value="${S.gcap == null ? 1000 : S.gcap}">
     <h3 style="margin-top:16px">顯示（這台裝置）</h3>
     <div class="grid2" style="grid-template-columns:1fr 1fr 1fr"><div><label>主題</label><select name="theme">${[["", "自動"], ["light", "淺色"], ["dark", "深色"]].map(([v, n]) => `<option value="${v}" ${(S.theme || "") === v ? "selected" : ""}>${n}</option>`).join("")}</select></div>
       <div><label>字體</label><select name="fz">${[["1", "標準"], ["1.15", "大"], ["1.3", "特大"]].map(([v, n]) => `<option value="${v}" ${String(S.fz || 1) === v ? "selected" : ""}>${n}</option>`).join("")}</select></div>
@@ -3227,8 +3229,9 @@ function openSettings() {
       S.cur = S.trips[0].id; save(); render(); return;
     }
     if (act !== "ok") return;
-    const gk = (fd.get("gkey") || "").trim(); if (gk !== (S.gkey || "")) { S.gkey = gk; gErrShown = false; gFail.clear(); }
-    const gc = Math.max(0, Math.round(+fd.get("gcap") || 0)); if (gc !== (S.gcap == null ? 1000 : S.gcap)) { S.gcap = gc; gCapShown = false; }
+    const gk = (fd.get("gkey") || "").trim(); if (gk !== (S.gkey || "")) { S.gkey = gk; gErrShown = false; gFail.clear(); S.setMt = Date.now(); }
+    const gc = Math.max(0, Math.round(+fd.get("gcap") || 0)); if (gc !== (S.gcap == null ? 1000 : S.gcap)) { S.gcap = gc; gCapShown = false; S.setMt = Date.now(); }
+    pushSettings();
     S.theme = fd.get("theme") || ""; S.fz = +fd.get("fz") || 1; S.mapc = fd.get("mapc") || ""; applyDisplay();
     t.name = fd.get("name").trim() || t.name; t.start = fd.get("start"); t.end = fd.get("end");
     t.cur = fd.get("cur"); t.home = fd.get("home");
@@ -3288,6 +3291,13 @@ function syncSection() {
 }
 // 給 sync.js 用的介面
 window.TravelApp = {
+  // 帳號設定(Google 路線金鑰、每月上限、緊急卡資料), 登入同一帳號的裝置共用; mt 新的蓋舊的
+  settings: () => ({ gkey: S.gkey || "", gcap: S.gcap ?? 1000, me: S.me || null, mt: S.setMt || 0 }),
+  applySettings(d) {
+    if (!d || (d.mt || 0) <= (S.setMt || 0)) return false;
+    S.gkey = d.gkey || ""; S.gcap = d.gcap ?? 1000; if (d.me) S.me = d.me; S.setMt = d.mt;
+    gErrShown = false; gFail.clear(); saveLocal(); if (!$("#dlg").open) render(); return true;
+  },
   trips: () => S.trips,
   deleted: () => S.deleted,
   get: (id) => S.trips.find((t) => t.id === id),
