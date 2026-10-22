@@ -886,8 +886,48 @@ function travelMin(a, b) {
   const nt = !!gt; // Google 只給步行(日本等地 API 沒有電車資料) → 用估算
   const d = distKm(a, b); if (d == null) return null;
   const mode = (MODES.find((x) => x[0] === b.mode) || [, "transit"])[1];
-  const km = d * 1.3, m = mode === "walking" ? (km / 4.5) * 60 : mode === "driving" ? 5 + (km / 25) * 60 : mode === "transit" ? (d < 1 ? (km / 4.5) * 60 : 10 + (km / 25) * 60) : null;
+  const km = d * 1.3, rail = mode === "transit" && !/公車/.test(b.mode || "") && railEst(a, b, d);
+  if (rail) return { ...rail, est: true, nt };
+  const m = mode === "walking" ? (km / 4.5) * 60 : mode === "driving" ? 5 + (km / 25) * 60 : mode === "transit" ? (d < 1 ? (km / 4.5) * 60 : 10 + (km / 25) * 60) : null;
   return m == null ? null : { m: Math.max(5, Math.round(m / 5) * 5), est: true, nt };
+}
+// ===== 電車估算(日本等 Google 給不出電車的地方): 起點、終點各找最近的車站 → 走到站 + 搭車 + 等車轉乘 + 走出站 =====
+S.stc ||= {};
+const stKey = (x) => x.lat != null ? `${x.lat.toFixed(3)},${x.lon.toFixed(3)}` : null;
+const stOf = (x) => { const k = stKey(x), v = k && S.stc[k]; return v && v.n ? v : null; };
+function railEst(a, b, d) {
+  const A = stOf(a), B = stOf(b); if (!A || !B) return null;
+  const wA = distKm(a, A) * 1.3, wB = distKm(B, b) * 1.3;
+  if (A.n === B.n || d < 1.2 || wA + wB > d * 1.3) return null; // 同一站或很近: 走路比較快, 交給一般估算
+  const ride = distKm(A, B) * 1.25, walk = ((wA + wB) / 4.5) * 60, m = walk + (ride / 32) * 60 + 5 + (ride > 6 ? 6 : 0);
+  return { m: Math.max(5, Math.round(m / 5) * 5), st: [A.n, B.n], walk: Math.round(walk) };
+}
+let stBusy = false;
+async function autoStations(t, d) {
+  if (stBusy || !navigator.onLine || ccOf(t) !== "JP") return;
+  const pts = routeSeq(t, d).flatMap((v, k, a) => k && v.dest && routeMode(v.i) === "transit" && !/公車/.test(v.i.mode || "") && !(+v.i.travel > 0) ? [a[k - 1].o, v.i] : []).filter((x) => stKey(x) && !(stKey(x) in S.stc));
+  if (!pts.length) return;
+  stBusy = true;
+  try {
+    for (const x of pts) {
+      const k = stKey(x); if (k in S.stc) continue;
+      try {
+        const q = `[out:json][timeout:15];(nwr["railway"="station"](around:1500,${x.lat},${x.lon});nwr["station"="subway"](around:1500,${x.lat},${x.lon}););out center 20;`;
+        const j = await (await fetch("https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(q))).json();
+        const st = (j.elements || []).map((e) => ({ n: e.tags && (e.tags.name || e.tags["name:ja"]), lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon })).filter((e) => e.n && e.lat != null)
+          .map((e) => ({ ...e, d: distKm(x, e) })).sort((p, q) => p.d - q.d)[0];
+        S.stc[k] = st ? { n: st.n, lat: st.lat, lon: st.lon } : {};
+      } catch (e) { break; } // 網路問題: 下次再試
+    }
+  } finally { stBusy = false; }
+  saveLocal(); if (!$("#dlg").open && !calDrag.on) render();
+}
+// 日本轉乘網站連結(用車站名, 帶出發時間)
+function transitLinks(a, b, tv) {
+  if (!tv || !tv.st) return "";
+  const [A, B] = tv.st, t0 = a.end || a.time, dt = a.date && t0 ? { y: a.date.slice(0, 4), m: a.date.slice(5, 7), d: a.date.slice(8, 10), hh: t0.slice(0, 2), mm: t0.slice(3, 5) } : null;
+  const yahoo = `https://transit.yahoo.co.jp/search/result?from=${encodeURIComponent(A)}&to=${encodeURIComponent(B)}${dt ? `&y=${dt.y}&m=${dt.m}&d=${dt.d}&hh=${dt.hh}&m1=${dt.mm[0]}&m2=${dt.mm[1]}&type=1` : ""}`;
+  return `<a class="btn" href="${yahoo}" target="_blank" rel="noopener" style="text-decoration:none">🚃 Yahoo!乗換案内 ↗</a>`;
 }
 // ===== Google 路線(Routes API): 有金鑰就用 Google 算真實交通時間, 結果存在行程上 =====
 const GMODE = { walking: "WALK", transit: "TRANSIT", driving: "DRIVE" };
@@ -962,7 +1002,8 @@ function parseGRoute(txt) {
   if (dep) { let h = +dep[1]; const pm = /下午|晚上/.test(dep[0]) || /PM/i.test(dep[0]); if (pm && h < 12) h += 12; depTxt = `${String(h).padStart(2, "0")}:${dep[2]} ${dep[3]}上車`; }
   const ln = lines.filter((x) => x.length <= 20 && /線|バス|ライン|Line|號|号|快速|特急|新幹線/.test(x) && !/從|出發|—/.test(x));
   if (!ln.length) { const bus = lines.filter((x) => /^[A-Z]?\d{1,4}[A-Z]?$/.test(x)); if (bus.length) ln.push("公車 " + bus.join("→")); }
-  const fare = (txt.match(/[¥￥]\s?[\d,]+/) || [""])[0].replace(/\s/g, "");
+  if (!depTxt) { const y = txt.match(/(\d{1,2}):(\d{2})\s*発/); if (y) depTxt = `${y[1].padStart(2, "0")}:${y[2]} 發車`; } // Yahoo!乗換案内
+  const fm = txt.match(/[¥￥]\s?[\d,]+/) || txt.match(/([\d,]+)\s*円/), fare = fm ? (fm[1] ? "¥" + fm[1] : fm[0].replace(/\s/g, "")) : "";
   const how = [depTxt, ln.join("→"), fare].filter(Boolean).join(" ");
   return how || m ? { m, how: how || txt.replace(/\s+/g, " ").slice(0, 60) } : null;
 }
@@ -975,12 +1016,13 @@ function showRoute(a, b) {
     : `<div class="mut" style="padding:2px 10px">${stepIcon(x)} ${x.w ? "步行" : "移動"} ${x.min} 分鐘</div>`).join("");
   const dlg = $("#dlg"); dlg.onclose = null;
   $("#dlgForm").innerHTML = `<h3>${esc(a.title)} → ${esc(b.title)}</h3>
-    <div class="mut">${m ? esc(m[0]) : "🚃 大眾運輸"}${tv ? `・${tv.est ? "約 " : ""}${tv.m} 分鐘（${tv.g ? "Google" : tv.est ? "依距離估算" : "自己填的"}）` : ""}</div>
+    <div class="mut">${m ? esc(m[0]) : "🚃 大眾運輸"}${tv ? `・${tv.est ? "約 " : ""}${tv.m} 分鐘（${tv.g ? "Google" : tv.st ? "依最近車站估算" : tv.est ? "依距離估算" : "自己填的"}）` : ""}</div>
+    ${tv && tv.st && !b.how ? `<div class="card" style="padding:8px 10px;margin:6px 0">🚉 <b>${esc(tv.st[0])}</b> → <b>${esc(tv.st[1])}</b><div class="mut">走到車站、出站共約 ${tv.walk} 分・實際搭哪條線請用下面的按鈕查</div></div>` : ""}
     ${b.how ? `<div class="card" style="padding:8px 10px;margin:6px 0;white-space:pre-wrap">📝 ${esc(b.how)}</div>` : ""}
-    ${rows || (b.how ? "" : `<div class="mut" style="margin:10px 0">${tv && tv.nt ? "Google 在日本等地不提供電車路線給 API（只有 Google 地圖 App 查得到），時間先用距離估算。按下面「Google 地圖導航」查好，填在下面就會記住。" : tv && tv.g ? "Google 沒有提供步驟。" : S.gkey ? "Google 路線查詢中或查不到，可以先用下面的 Google 地圖看。" : "在 ⚙︎ 填「Google 路線金鑰」，這裡就會列出搭哪條線、哪站上下車。"}</div>`)}
+    ${rows || (b.how || (tv && tv.st) ? "" : `<div class="mut" style="margin:10px 0">${tv && tv.nt ? "Google 在日本等地不提供電車路線給 API（只有 Google 地圖 App 查得到），時間先用距離估算。按下面「Google 地圖導航」查好，填在下面就會記住。" : tv && tv.g ? "Google 沒有提供步驟。" : S.gkey ? "Google 路線查詢中或查不到，可以先用下面的 Google 地圖看。" : "在 ⚙︎ 填「Google 路線金鑰」，這裡就會列出搭哪條線、哪站上下車。"}</div>`)}
     <div class="grid2"><div><label>交通時間（分，空白＝自動）</label><input type="number" min="0" id="rtMin" value="${+b.travel > 0 ? +b.travel : ""}"></div><div><label>怎麼去</label><input id="rtHow" value="${esc(b.how || "")}" placeholder="可直接貼上 Google 地圖的路線文字"></div></div>
-    <div class="mut">在 Google 地圖選取一條路線的文字（從時間到 ¥ 票價）→ 複製 → 貼到「怎麼去」，會自動填好時間。</div>
-    <div class="row" style="margin-top:12px"><a class="btn" href="${url}" target="_blank" rel="noopener" style="text-decoration:none">Google 地圖導航 ↗</a><span class="sp"></span><button value="cancel">關閉</button><button type="button" class="pri" id="rtSave">儲存</button></div>`;
+    <div class="mut">在 Google 地圖或 Yahoo!乗換案内選取一條路線的文字（從時間到票價）→ 複製 → 貼到「怎麼去」，會自動填好時間。</div>
+    <div class="row" style="margin-top:12px"><a class="btn" href="${url}" target="_blank" rel="noopener" style="text-decoration:none">Google 地圖導航 ↗</a>${transitLinks(a, b, tv)}<span class="sp"></span><button value="cancel">關閉</button><button type="button" class="pri" id="rtSave">儲存</button></div>`;
   $("#rtHow").onpaste = (e) => {
     const r = parseGRoute(e.clipboardData.getData("text")); if (!r) return;
     e.preventDefault(); $("#rtHow").value = r.how; if (r.m) $("#rtMin").value = r.m;
@@ -1016,7 +1058,7 @@ function connHtml(a, b) {
   const m = MODES.find((x) => x[0] === b.mode), d = distKm(a, b);
   const tm = m ? m[1] : "transit";
   const url = mapsDirUrl(a, b, tm);
-  const tv = travelMin(a, b), walk = tv ? `・${tv.est ? "約 " : ""}${tv.m} 分鐘${tv.g ? "（Google）" : ""}${b.how ? "・" + esc(b.how) : tv.steps && tv.steps.length ? "・" + esc(stepsBrief(tv.steps)) : ""}` : "";
+  const tv = travelMin(a, b), walk = tv ? `・${tv.est ? "約 " : ""}${tv.m} 分鐘${tv.g ? "（Google）" : ""}${b.how ? "・" + esc(b.how) : tv.steps && tv.steps.length ? "・" + esc(stepsBrief(tv.steps)) : tv.st ? `・🚉 ${esc(tv.st[0])}→${esc(tv.st[1])}` : ""}` : "";
   const gk = tv && tv.g && b.gtravel.km;
   return `<div class="conn">↓ ${m ? esc(m[0]) : '<span style="opacity:.7">交通方式？</span>'}${gk ? `・${fmt(gk, 1)} km` : d != null ? `・直線 ${d < 1 ? Math.round(d * 1000) + " m" : fmt(d, 1) + " km"}` : ""}${walk}・<a href="${url}" target="_blank" rel="noopener">查路線 ↗</a></div>`;
 }
@@ -1693,8 +1735,8 @@ function calHtml(t) {
     const bad = a.e + tv.m > b.s, st0 = bad ? a.e : b.s - tv.m; // 來不及: 從上一個結束開始畫, 看得出超過多少
     if (bad) late.add(b.i.id);
     const icon = (MODES.find((x) => x[0] === b.i.mode) || ["🚃"])[0].split(" ")[0];
-    const brief = b.i.how || (tv.steps && tv.steps.length ? stepsBrief(tv.steps) : "");
-    h += `<div class="caltr${bad ? " late" : ""}" data-act="route" data-k="${k}" title="${tv.g ? "Google 路線" : tv.est ? "依距離估算" : "自己填的"}・點開看怎麼去" style="top:${((Math.max(st0, lo * 60) - lo * 60) / 60) * HPX}px;height:${Math.max(14, (tv.m / 60) * HPX - 2)}px">${brief ? "" : icon + " "}${tv.est ? "約" : ""}${tv.m}分${bad ? " 來不及" : ""}${brief ? " " + esc(brief) : ""}</div>`;
+    const brief = b.i.how || (tv.steps && tv.steps.length ? stepsBrief(tv.steps) : tv.st ? `${tv.st[0]}→${tv.st[1]}` : "");
+    h += `<div class="caltr${bad ? " late" : ""}" data-act="route" data-k="${k}" title="${tv.g ? "Google 路線" : tv.st ? "依最近車站估算" : tv.est ? "依距離估算" : "自己填的"}・點開看怎麼去" style="top:${((Math.max(st0, lo * 60) - lo * 60) / 60) * HPX}px;height:${Math.max(14, (tv.m / 60) * HPX - 2)}px">${brief ? "" : icon + " "}${tv.est ? "約" : ""}${tv.m}分${bad ? " 來不及" : ""}${brief ? " " + esc(brief) : ""}</div>`;
   }
   for (const v of calLayout(evs)) {
     const top = ((v.s - lo * 60) / 60) * HPX, ht = Math.max(26, ((v.e - v.s) / 60) * HPX - 3), w = 100 / v.cols, i = v.i, warn = hoursWarn(i, t) || (late.has(i.id) ? "⚠️ 交通來不及" : "");
@@ -1953,7 +1995,7 @@ function rainHtml(t, d) {
 }
 
 // ===== 交通費: 把「怎麼去」裡的 ¥ 加總(每人) =====
-const yenOf = (s) => { const m = (s || "").match(/[¥￥]\s?([\d,]+)/); return m ? +m[1].replace(/,/g, "") : 0; };
+const yenOf = (s) => { const m = (s || "").match(/[¥￥]\s?([\d,]+)/) || (s || "").match(/([\d,]+)\s*円/); return m ? +m[1].replace(/,/g, "") : 0; };
 const feeNote = (d) => `交通費 ${d.slice(5)}`;
 function feeOf(t, d) { return routeSeq(t, d).filter((v) => v.dest).reduce((s, v) => s + yenOf(v.i.how), 0); }
 function feeHtml(t, d) {
@@ -2929,8 +2971,8 @@ function render() {
   if (S.tab === "itin" && filt.iv === "地圖") initMap(t);
   if (S.tab === "fx" && filt.tool === "足跡") initFp();
   if ((S.tab === "tickets" && filt.tk === "優惠券") || (S.tab === "exp" && filt.ex === "收據整理") || (S.tab === "itin" && filt.iv === "日記") || (S.tab === "pack" && (filt.pk || "必買") === "必買")) fillThumbs();
-  if (S.tab === "itin" && (filt.iv || "行事曆") === "行事曆") { calScroll(); gRouteDay(t, filt.cd); autoGeoDay(t, filt.cd); }
-  if (S.tab === "itin" && filt.iv === "清單" && S.gkey) [...new Set(t.itin.map((i) => i.date))].forEach((d) => d && gRouteDay(t, d));
+  if (S.tab === "itin" && (filt.iv || "行事曆") === "行事曆") { calScroll(); gRouteDay(t, filt.cd); autoGeoDay(t, filt.cd); autoStations(t, filt.cd); }
+  if (S.tab === "itin" && filt.iv === "清單") [...new Set(t.itin.map((i) => i.date))].forEach((d) => { if (d) { if (S.gkey) gRouteDay(t, d); autoStations(t, d); } });
   if ($("#ckIn")) $("#ckIn").onchange = (e) => { const f = e.target.files[0]; if (f) checkin(T(), f).catch((err) => alert("打卡失敗：" + err.message)); };
   if ($("#diaryAuto")) $("#diaryAuto").onchange = (e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) diaryAuto(T(), fs); };
   if ($("#ocrIn")) $("#ocrIn").onchange = (e) => { const f = e.target.files[0]; if (f) doOcr(f).catch((err) => alert("失敗：" + err.message)); };
