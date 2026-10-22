@@ -1246,7 +1246,6 @@ function summaryText(t) {
     m.maxDay ? `📅 最燒錢的一天：${m.maxDay[0]} ${fmt(m.maxDay[1])} ${H}` : "",
     m.spots ? `📍 景點去了 ${m.visited}/${m.spots} 個` : "",
     m.itin ? `🗓 行程 ${m.itin} 個${m.km ? `，移動約 ${fmt(m.km, 1)} km（直線）` : ""}` : "",
-    m.steps ? `👣 走了${m.walkEst ? "約" : ""} ${fmt(m.steps)} 步（${fmt(m.walkKm, 1)} km）` : "",
     m.shop ? `🛍 必買清單買了 ${m.bought}/${m.shop}` : "",
     m.tkUsed ? `🎫 用了 ${m.tkUsed} 張票券` : "",
   ].filter((x) => x !== "").join("\n");
@@ -1260,7 +1259,6 @@ function showSummary(t) {
       ${stat("天數", m.days, t.people.length > 1 ? `${t.people.length} 人・每人 ${fmt(m.perPerson)}` : "")}
       ${stat("景點", `${m.visited}/${m.spots}`, "去過／收藏")}
       ${stat("移動距離", m.km ? fmt(m.km, 1) + " km" : "—", "行程點之間直線")}
-      ${m.steps ? stat("走路", `${m.walkEst ? "約 " : ""}${fmt(m.steps)} 步`, `${fmt(m.walkKm, 1)} km${m.walkEst ? "・含估算" : ""}`) : ""}
     </div>
     ${m.top.length ? `<h3 style="margin-top:12px">花最多</h3><table>${m.top.map(([c, v]) => `<tr><td>${esc(c)}</td><td class="r">${fmt(v)} ${t.home}</td><td class="r mut">${fmt((v / m.total) * 100)}%</td></tr>`).join("")}</table>` : ""}
     ${m.big ? `<div style="margin-top:8px">💸 最大一筆：<b>${esc(m.big.note || m.big.cat)}</b> ${fmt(m.big.amt, 2)} ${m.big.cur}</div>` : ""}
@@ -1707,7 +1705,7 @@ function calHtml(t) {
       <div class="chips" style="margin:0;flex:1">${days.map((x) => `<button class="${x === d ? "on" : ""}" data-f="cd" data-v="${x}">${x.slice(5)}(${dayName(x)})</button>`).join("")}</div>
       <button class="sm" data-act="calnext" ${idx < days.length - 1 ? "" : "disabled"}>›</button></div>
     <div class="row" style="margin:4px 0 8px"><h3 class="sp" style="margin:0">${n > 0 ? `Day ${n}・` : ""}${d} (${dayName(d)})</h3><span class="wx">${wxTxt(wxOf(t, d))}</span><button class="sm noprint" data-act="optday" title="依距離重排今天的順序與時間">🔀 排順序</button></div>
-    ${wxOf(t, d) ? `<div class="mut" style="margin:-4px 0 8px">${outfit(wxOf(t, d))}</div>` : ""}${wxAlertHtml(t, d)}${holHtml(t, d)}${feeHtml(t, d)}${(() => { const w = walkOf(t, d); return `<div class="row mut noprint" style="margin:-4px 0 8px"><span class="sp">${w ? walkTxt(w) : "👣 走路步數"}</span><button class="sm" data-act="stepset" data-d="${d}">${w && !w.est ? "改步數" : "填步數"}</button></div>`; })()}${rainHtml(t, d)}
+    ${wxOf(t, d) ? `<div class="mut" style="margin:-4px 0 8px">${outfit(wxOf(t, d))}</div>` : ""}${wxAlertHtml(t, d)}${holHtml(t, d)}${feeHtml(t, d)}${rainHtml(t, d)}
     ${present.length > 1 ? `<div class="chips noprint"><button class="${!filt.ic ? "on" : ""}" data-f="ic" data-v="">全部</button>${present.map(([c, ic]) => `<button class="${filt.ic === c ? "on" : ""}" data-f="ic" data-v="${c}"><span class="cdot c-${c}"></span>${ic} ${c}</button>`).join("")}</div>` : ""}`;
   for (const i of banners) { const k = spanDates(i.date, d).length, N = nights(i);
     h += `<div class="calban c-${icatOf(i)}" data-edit="itin:${i.id}">${icatIcon(icatOf(i))} <b>${esc(i.title)}</b><span class="mut">・${icatOf(i) === "住宿" ? `第 ${k} 晚／共 ${N} 晚` : `第 ${k} 天／共 ${N + 1} 天`}・${i.date.slice(5)}～${i.endDate.slice(5)}</span></div>`; }
