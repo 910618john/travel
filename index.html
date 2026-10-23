@@ -314,7 +314,7 @@ const icatIcon = (c) => (ICATS.find((x) => x[0] === c) || ICATS[0])[1];
 const MODES = [["🚶 步行", "walking"], ["🚃 電車/地鐵", "transit"], ["🚌 公車", "transit"], ["🚕 計程車", "driving"], ["🚗 開車", "driving"], ["✈️ 飛機", ""], ["⛴ 船", ""]];
 const SCHEMA = {
   itin: [["date", "日期(住宿＝入住日)", "date"], ["endDate", "結束日期(住宿＝退房日，跨天才填)", "date"], ["time", "開始時間(住宿＝入住時間)", "time"], ["end", "結束時間(住宿＝退房時間；沒填算 1 小時)", "time"], ["title", "活動", "text", 1], ["cat", "類型", "select", 0, ICATS.map((x) => x[0])], ["place", "地點(可貼Google地圖連結)", "text"], ["hours", "營業時間(排進行程會自動檢查)", "hours"], ["rsv", "訂位", "select", 0, ["", "要訂位", "已訂位"]], ["rsvOpen", "開放訂位日(選填，到時提醒)", "date"], ["mode", "從上一個行程怎麼過去", "select", 0, ["", ...MODES.map((m) => m[0])]], ["travel", "交通時間(分鐘，選填；沒填會依距離估)", "number"], ["how", "怎麼去(選填，例：機場線 福岡空港→中洲川端)", "text"], ["note", "備註", "textarea"]],
-  shop: [["name", "要買什麼", "text", 1], ["cat", "分類", "select", 0, SHOP_CATS], ["where", "在哪買(店名/地點)", "text"], ["price", "預估價格", "number"], ["cur", "幣別", "cur"], ["qty", "數量", "number"], ["who", "送誰／自用", "text"], ["file", "商品照片(給店員看)", "file"], ["note", "備註", "textarea"]],
+  shop: [["name", "要買什麼", "text", 1], ["cat", "分類", "select", 0, SHOP_CATS], ["where", "在哪買(店名/地點)", "text"], ["price", "預估價格", "number"], ["cur", "幣別", "cur"], ["tw", "台灣價格(本國幣，比價用)", "number"], ["jan", "條碼", "text"], ["qty", "數量", "number"], ["who", "送誰／自用", "text"], ["file", "商品照片(給店員看)", "file"], ["note", "備註", "textarea"]],
   tcard: [["date", "日期", "date"], ["amt", "加值金額(當地幣，含押金可以分開記)", "number", 1], ["note", "備註(例：Suica 首次購卡、車站加值)", "text"]],
   wallet: [["date", "日期", "date"], ["amt", "換到的外幣金額(負數=調整減少)", "number", 1], ["cur", "幣別", "cur"], ["cost", "花了多少本國幣(選填，用來算實際匯率)", "number"], ["note", "備註(在哪換)", "text"]],
   spots: [["name", "名稱", "text", 1], ["cat", "分類", "select", 0, SPOT_CATS], ["city", "城市/區域", "text"], ["addr", "地址或地圖連結", "text"], ["hours", "營業時間(排進行程會自動檢查)", "hours"], ["price", "門票/預算", "text"], ["prio", "優先", "select", 0, ["必去", "想去", "有空再去"]], ["rsv", "訂位", "select", 0, ["", "要訂位", "已訂位"]], ["rsvOpen", "開放訂位日(選填，到時提醒)", "date"], ["note", "備註", "textarea"]],
@@ -2370,6 +2370,86 @@ function closeCheck(t) {
 
 
 const pushSettings = () => { if (window.TravelSync && TravelSync.user && TravelSync.putSettings) TravelSync.putSettings(TravelApp.settings()); };
+// ===== 掃商品: 條碼 → 商品資料(Open Food/Beauty/Products Facts; 有樂天 ID 再查日本價格) → 翻譯 → 跟台灣比價 → 加入必買 =====
+let zxP = null;
+const loadZX = () => (zxP ||= new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"; sc.onload = () => res(window.ZXing); sc.onerror = () => { zxP = null; rej(new Error("條碼程式載入失敗（需要網路）")); }; document.head.appendChild(sc); }));
+let scanState = { code: "", busy: "", info: null };
+async function scanLive() {
+  let ZX; try { ZX = await loadZX(); } catch (e) { return alert(e.message); }
+  const ov = document.createElement("div");
+  ov.style.cssText = "position:fixed;inset:0;background:#000;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;gap:12px";
+  ov.innerHTML = `<div>把條碼對準框框</div><div style="position:relative;width:min(92vw,480px)"><video id="scV" playsinline muted style="width:100%;border-radius:12px"></video><div style="position:absolute;left:10%;right:10%;top:35%;bottom:35%;border:3px solid #5eead4;border-radius:8px"></div></div><button id="scX" style="padding:10px 20px">取消</button>`;
+  document.body.appendChild(ov);
+  const rd = new ZX.BrowserMultiFormatReader(); let done = false;
+  const stop = () => { done = true; try { rd.reset(); } catch (e) { } ov.remove(); };
+  $("#scX").onclick = stop;
+  try {
+    await rd.decodeFromConstraints({ video: { facingMode: "environment" } }, $("#scV"), (r) => { if (r && !done) { stop(); navigator.vibrate && navigator.vibrate(60); lookupItem(r.getText()); } });
+  } catch (e) { stop(); alert("開不了相機：請允許網頁使用相機，或改用「拍照掃」"); }
+}
+async function scanPhoto(file) {
+  scanState = { code: "", busy: "辨識條碼中…", info: null }; render();
+  let code = "";
+  try {
+    if ("BarcodeDetector" in window) { const r = await new BarcodeDetector().detect(await createImageBitmap(file)); code = r[0] && r[0].rawValue || ""; }
+    if (!code) { const ZX = await loadZX(), u = URL.createObjectURL(file); try { code = (await new ZX.BrowserMultiFormatReader().decodeFromImageUrl(u)).getText(); } finally { URL.revokeObjectURL(u); } }
+  } catch (e) { }
+  if (!code) { scanState.busy = "照片裡找不到條碼：靠近一點、拍清楚一點，或直接輸入條碼數字"; return render(); }
+  lookupItem(code);
+}
+async function lookupItem(code) {
+  code = String(code).replace(/\D/g, ""); if (!code) return;
+  const t = T(); filt.tool = "商品"; if (S.tab !== "fx") goTab("fx");
+  scanState = { code, busy: "查商品資料中…", info: null }; render();
+  const info = { code, name: "", brand: "", img: "", qty: "", desc: "", jp: [], src: "" };
+  for (const base of ["world.openfoodfacts.org", "world.openbeautyfacts.org", "world.openproductsfacts.org"]) {
+    try {
+      const j = await (await fetch(`https://${base}/api/v2/product/${code}.json?fields=product_name,product_name_ja,product_name_zh,brands,image_front_url,image_url,quantity,ingredients_text,categories`)).json();
+      if (j.status === 1 && j.product) { const p = j.product; Object.assign(info, { name: p.product_name_ja || p.product_name || p.product_name_zh || "", brand: p.brands || "", img: p.image_front_url || p.image_url || "", qty: p.quantity || "", desc: (p.ingredients_text || p.categories || "").slice(0, 300), src: base.split(".")[1] }); break; }
+    } catch (e) { }
+  }
+  if (S.rkid) try {
+    const j = await (await fetch(`https://app.rakuten.co.jp/services/api/IchibaItem/Search/20220601?format=json&formatVersion=2&hits=10&sort=%2BitemPrice&keyword=${code}&applicationId=${encodeURIComponent(S.rkid)}`)).json();
+    info.jp = (j.Items || []).map((x) => ({ n: x.itemName, p: x.itemPrice, shop: x.shopName, url: x.itemUrl, img: (x.mediumImageUrls || [])[0] }));
+    if (!info.name && info.jp[0]) { info.name = info.jp[0].n.replace(/【[^】]*】|\[[^\]]*\]/g, "").slice(0, 60); info.img ||= info.jp[0].img || ""; info.src = "樂天"; }
+  } catch (e) { }
+  if (info.name) {
+    scanState.busy = "翻譯中…"; render();
+    try { const tr = await trText([info.brand, info.name, info.desc].filter(Boolean).join("\n"), t); const l = tr.split("\n"); info.zh = l.slice(0, info.brand ? 2 : 1).join(" "); info.descZh = l.slice(info.brand ? 2 : 1).join("\n"); } catch (e) { }
+  }
+  const ps = info.jp.map((x) => x.p).sort((a, b) => a - b);
+  info.local = ps.length ? ps[Math.floor(ps.length / 3)] : ""; // 取偏低的價格當參考
+  scanState = { code, busy: "", info }; render();
+}
+function scanCompare(t) {
+  const i = scanState.info, lp = +($("#scLocal") || {}).value || 0, tw = +($("#scTw") || {}).value || 0, el = $("#scCmp"); if (!el) return;
+  if (!lp) return (el.innerHTML = "");
+  const h = toHome(lp, t.cur), tf = toHome(lp / 1.1, t.cur);
+  let s = `${t.cur} ${fmt(lp)} ≈ <b>${fmt(h)} ${t.home}</b>${ccOf(t) === "JP" ? `<div class="mut">標價含稅的話，同店滿 ¥5,000 免稅 ≈ ${fmt(tf)} ${t.home}</div>` : ""}`;
+  if (tw) { const d = tw - h, pct = Math.round((d / tw) * 100); s += `<div style="margin-top:4px;font-size:calc(17px*var(--fz,1));font-weight:700;color:${d > 0 ? "var(--acc)" : "var(--red)"}">${d > 0 ? `當地便宜 ${fmt(d)} ${t.home}（${pct}%）` : `台灣反而便宜 ${fmt(-d)} ${t.home}`}</div>`; }
+  el.innerHTML = s;
+}
+function scanHtml(t) {
+  const st = scanState, i = st.info;
+  const kw = i ? [i.brand, i.name].filter(Boolean).join(" ") || i.code : "";
+  const tw = (u) => `${u}${encodeURIComponent(i && i.zh && !/[ぁ-んァ-ン]/.test(i.zh) ? i.zh : kw)}`;
+  return `<div class="row" style="margin-bottom:8px"><button class="pri" data-act="scanlive" style="flex:1">📷 掃條碼</button><label class="btn" style="margin:0;flex:1;text-align:center">🖼 拍照掃<input type="file" accept="image/*" capture="environment" id="scPic" hidden></label></div>
+    <div class="row" style="margin-bottom:8px"><input id="scCode" inputmode="numeric" placeholder="或輸入條碼數字（JAN 13 碼）" value="${esc(st.code)}" style="flex:1"><button class="sm" data-act="scango">查</button></div>
+    ${st.busy ? `<div class="card mut">${esc(st.busy)}</div>` : ""}
+    ${i ? `<div class="card"><div class="row" style="align-items:flex-start;gap:10px">${i.img ? `<img src="${esc(i.img)}" alt="" style="width:84px;height:84px;object-fit:contain;border-radius:8px;background:#fff">` : ""}<div class="sp">
+      ${i.name ? `<b>${esc(i.zh || i.name)}</b>${i.zh ? `<div class="mut">${esc([i.brand, i.name].filter(Boolean).join(" "))}</div>` : ""}${i.qty ? `<div class="mut">${esc(i.qty)}</div>` : ""}` : `<b>查不到這個條碼的資料</b><div class="mut">免費資料庫的日本商品不齊全，可以用下面的連結查</div>`}
+      <div class="mut">條碼 ${esc(i.code)}${i.src ? `・資料：${esc(i.src)}` : ""}</div></div></div>
+      ${i.descZh ? `<details style="margin-top:6px"><summary>成分／說明（翻譯）</summary><div class="mut" style="white-space:pre-wrap">${esc(i.descZh)}</div></details>` : ""}
+      <div class="row" style="margin-top:6px;flex-wrap:wrap"><a class="btn sm" href="https://www.google.com/search?q=${encodeURIComponent(i.code)}" target="_blank" rel="noopener" style="text-decoration:none">Google 查條碼 ↗</a><a class="btn sm" href="https://search.rakuten.co.jp/search/mall/${i.code}/" target="_blank" rel="noopener" style="text-decoration:none">樂天 ↗</a><a class="btn sm" href="https://www.amazon.co.jp/s?k=${i.code}" target="_blank" rel="noopener" style="text-decoration:none">Amazon JP ↗</a></div></div>
+    <h2>比價</h2><div class="card">
+      ${i.jp.length ? `<div class="mut" style="margin-bottom:6px">日本網購（樂天）：¥${fmt(Math.min(...i.jp.map((x) => x.p)))} 起・${i.jp.length} 家</div>` : ""}
+      <div class="grid2"><div><label>當地價格（${t.cur}）</label><input type="number" inputmode="decimal" id="scLocal" value="${i.local || ""}" placeholder="看店裡標價"></div><div><label>台灣價格（${t.home}）</label><input type="number" inputmode="decimal" id="scTw" placeholder="查了填這裡"></div></div>
+      <div id="scCmp" style="margin-top:6px"></div>
+      <div class="mut" style="margin-top:6px">查台灣價格：</div><div class="row" style="flex-wrap:wrap"><a class="btn sm" href="${tw("https://shopee.tw/search?keyword=")}" target="_blank" rel="noopener" style="text-decoration:none">蝦皮 ↗</a><a class="btn sm" href="${tw("https://www.momoshop.com.tw/search/searchShop.jsp?keyword=")}" target="_blank" rel="noopener" style="text-decoration:none">momo ↗</a><a class="btn sm" href="${tw("https://24h.pchome.com.tw/search/?q=")}" target="_blank" rel="noopener" style="text-decoration:none">PChome ↗</a><a class="btn sm" href="${tw("https://www.google.com/search?tbm=shop&q=")}" target="_blank" rel="noopener" style="text-decoration:none">Google 購物 ↗</a></div>
+      <div class="row" style="margin-top:10px"><span class="sp"></span><button class="sm pri" data-act="scansave">＋ 加入必買</button></div></div>` : ""}
+    ${!i && !st.busy ? `<div class="mut">掃商品條碼 → 看中文名稱、成分翻譯，再跟台灣價格比一比。${S.rkid ? "" : "<br>想要自動查日本網購價格，可以在 ⚙︎ 填「樂天 API ID」（免費申請）"}</div>` : ""}`;
+}
+
 // ===== 畫面 =====
 const TABS = [["home", "🏠", "總覽"], ["itin", "🗓", "行程"], ["books", "✈️", "訂位"], ["tickets", "🎫", "票券"], ["exp", "💰", "花費"], ["fx", "🧰", "工具"], ["pack", "📝", "清單"]];
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
@@ -2529,7 +2609,7 @@ const V = {
   },
   fx(t) {
     const sub = filt.tool || "匯率";
-    const head = `<div class="chips">${["匯率", "附近", "翻譯", "退稅", "小費", "外語", "緊急", "足跡"].map((x) => `<button class="${x === sub ? "on" : ""}" data-f="tool" data-v="${x}">${x}</button>`).join("")}</div>`;
+    const head = `<div class="chips">${["匯率", "商品", "附近", "翻譯", "退稅", "小費", "外語", "緊急", "足跡"].map((x) => `<button class="${x === sub ? "on" : ""}" data-f="tool" data-v="${x}">${x}</button>`).join("")}</div>`;
     return head + TOOLS[sub](t);
   },
   fxRate(t) {
@@ -2557,6 +2637,7 @@ const V = {
 };
 
 const TOOLS = {
+  商品: (t) => scanHtml(t),
   附近: (t) => nearHtml(t),
   翻譯: (t) => trHtml(t),
   足跡: () => fpHtml(),
@@ -2606,6 +2687,13 @@ const TOOLS = {
 function toolBind(t) {
   const sub = filt.tool || "匯率";
   if (sub === "匯率") return fxBind(t);
+  if (sub === "商品") {
+    if ($("#scPic")) $("#scPic").onchange = (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) scanPhoto(f); };
+    $("#scCode").onkeydown = (e) => { if (e.key === "Enter") lookupItem(e.target.value); };
+    ["#scLocal", "#scTw"].forEach((k) => $(k) && ($(k).oninput = () => scanCompare(t)));
+    scanCompare(t);
+    return;
+  }
   if (sub === "翻譯") {
     const on = (e) => { const f = e.target.files[0]; if (f) trPhoto(t, f); };
     $("#trCam").onchange = on; $("#trPic").onchange = on;
@@ -2637,14 +2725,16 @@ function toolBind(t) {
 const fabKind = () => S.tab === "tickets" && filt.tk === "優惠券" ? "coupons" : S.tab === "itin" && filt.iv === "日記" ? null : S.tab === "itin" && filt.iv === "景點" ? "spots" : S.tab === "fx" ? { 外語: "phr", 緊急: "emerg" }[filt.tool] : S.tab === "pack" ? { 必買: "shop", 行李: "pack" }[filt.pk || "必買"] : SCHEMA[S.tab] ? S.tab : null;
 
 function shopHtml(t) {
-  if (!t.shop.length) return `<div class="empty">必買清單是空的，按 ＋ 新增<br>可以附商品照片，到店裡直接給店員看</div>`;
+  const scanBtn = `<div class="row" style="margin-bottom:8px"><button class="sm" data-act="goscan">🔍 掃商品條碼（翻譯、比價）</button></div>`;
+  if (!t.shop.length) return scanBtn + `<div class="empty">必買清單是空的，按 ＋ 新增<br>可以附商品照片，到店裡直接給店員看</div>`;
   const left = t.shop.filter((x) => !x.ok), done = t.shop.length - left.length, grid = (filt.sv || "圖卡") === "圖卡";
   const est = (arr) => arr.reduce((s, x) => s + toHome((+x.price || 0) * (+x.qty || 1), x.cur), 0);
   const byCat = {}; t.shop.forEach((x) => (byCat[x.cat] ||= []).push(x));
-  const img = (x, cls) => x.fileId && !/pdf/.test(x.fileType || "") ? `<img class="${cls}" data-fid="${x.fileId}" data-act="shopimg" data-id="${x.id}" alt="${esc(x.name)}">` : `<div class="${cls} noimg" data-edit="shop:${x.id}">🛍</div>`;
-  const price = (x) => x.price ? `${fmt(x.price, 2)} ${x.cur}${x.cur !== t.home ? `<span class="mut"> ≈${fmt(toHome(x.price * (+x.qty || 1), x.cur))}</span>` : ""}` : "";
+  const img = (x, cls) => x.fileId && !/pdf/.test(x.fileType || "") ? `<img class="${cls}" data-fid="${x.fileId}" data-act="shopimg" data-id="${x.id}" alt="${esc(x.name)}">` : x.img && /^https:/.test(x.img) ? `<img class="${cls}" src="${esc(x.img)}" data-edit="shop:${x.id}" alt="${esc(x.name)}" style="object-fit:contain;background:#fff">` : `<div class="${cls} noimg" data-edit="shop:${x.id}">🛍</div>`;
+  const cmp = (x) => { if (!x.price || !x.tw) return ""; const d = x.tw - toHome(x.price, x.cur); return ` <span style="color:${d > 0 ? "var(--acc)" : "var(--red)"};font-weight:700">${d > 0 ? `省 ${fmt(d)}` : `貴 ${fmt(-d)}`}</span>`; };
+  const price = (x) => x.price ? `${fmt(x.price, 2)} ${x.cur}${x.cur !== t.home ? `<span class="mut"> ≈${fmt(toHome(x.price * (+x.qty || 1), x.cur))}</span>` : ""}${cmp(x)}` : "";
   const meta = (x) => [x.where && "📍 " + esc(x.where), x.who && "🎁 " + esc(x.who)].filter(Boolean).join("・") + (x.where ? cpTag(x.where) : "");
-  return `<div class="card"><div class="row"><span class="sp">已買 ${done}/${t.shop.length}</span><span class="mut">還沒買的預估 ${fmt(est(left))} ${t.home}</span></div><div class="bar"><i style="width:${(done / t.shop.length) * 100}%"></i></div></div>
+  return scanBtn + `<div class="card"><div class="row"><span class="sp">已買 ${done}/${t.shop.length}</span><span class="mut">還沒買的預估 ${fmt(est(left))} ${t.home}</span></div><div class="bar"><i style="width:${(done / t.shop.length) * 100}%"></i></div></div>
     <div class="chips">${["圖卡", "清單"].map((m) => `<button class="${m === (filt.sv || "圖卡") ? "on" : ""}" data-f="sv" data-v="${m}">${m === "圖卡" ? "🖼" : "📋"} ${m}</button>`).join("")}</div>` +
     Object.entries(byCat).map(([c, arr]) => `<h2>${esc(c)} <span class="mut" style="font-weight:400">${arr.filter((x) => x.ok).length}/${arr.length}</span></h2>` + (grid
       ? `<div class="shopgrid">${arr.sort((a, b) => !!a.ok - !!b.ok).map((x) => `<div class="stile ${x.ok ? "done" : ""}">
@@ -2800,6 +2890,14 @@ document.addEventListener("click", async (e) => {
     else if (act === "route") { const sq = routeSeq(t, filt.cd), k = +el.dataset.k; return sq[k] && showRoute(sq[k - 1].o, sq[k].i); }
     else if (act === "shelter") { filt.tool = "附近"; goTab("fx"); return findNear(t, "避難所"); }
     else if (act === "notifyok") { if (!("Notification" in window)) return alert("這個瀏覽器不支援通知（iPhone 要先「加入主畫面」再從主畫面開啟）"); return Notification.requestPermission().then((p) => { toast(p === "granted" ? "已開啟通知" : "沒有允許通知"); render(); }); }
+    else if (act === "goscan") { filt.tool = "商品"; return goTab("fx"); }
+    else if (act === "scanlive") return scanLive();
+    else if (act === "scango") return lookupItem($("#scCode").value);
+    else if (act === "scansave") {
+      const i = scanState.info, lp = +$("#scLocal").value || "", tw = +$("#scTw").value || "";
+      const x = { id: uid(), name: i.zh || i.name || "條碼 " + i.code, cat: /化粧|コスメ|cosmetic|beauty|藥|薬/i.test(`${i.src} ${i.name}`) ? "藥妝" : /food|食|菓子|お菓子/i.test(`${i.src} ${i.name}`) ? "零食" : "其他", price: lp, cur: t.cur, qty: 1, tw, jan: i.code, img: i.img, note: [i.name !== (i.zh || i.name) ? i.name : "", i.qty].filter(Boolean).join("・") };
+      t.shop.push(x); save(); toast(`已加入必買：${x.name}`); filt.pk = "必買"; return goTab("pack");
+    }
     else if (act === "near") return findNear(t, el.dataset.k);
     else if (act === "trgo") { trState.src = $("#trSrc").value.trim(); if (!trState.src) return; trState.busy = "翻譯中…"; trState.out = ""; render(); trText(trState.src, t).then((o) => { trState.out = o; trState.busy = o ? "" : "翻譯失敗"; }).catch(() => { trState.busy = "翻譯失敗（需要網路）"; }).finally(render); return; }
     else if (act === "hourschk") return hoursCheck(t);
@@ -2998,6 +3096,7 @@ function openSettings() {
     <h3 style="margin-top:16px">Google 路線</h3>
     <label>金鑰（選填，填了交通時間改用 Google 計算）</label><input name="gkey" value="${esc(S.gkey || "")}" placeholder="AIza…" autocomplete="off">
     <div class="mut">沒填就用距離粗估。本月這台裝置已查 <b>${S.gcnt && S.gcnt.m === new Date().toISOString().slice(0, 7) ? S.gcnt.n : 0}</b> 次（查過的會記住，改了才重查）</div>
+    <label>樂天 API ID（選填，掃商品時自動查日本網購價格）</label><input name="rkid" value="${esc(S.rkid || "")}" placeholder="到 webservice.rakuten.co.jp 免費申請" autocomplete="off">
     <label>每台裝置每月上限（0 = 不限）</label><input type="number" min="0" step="1" name="gcap" value="${S.gcap == null ? 1000 : S.gcap}">
     <h3 style="margin-top:16px">顯示（這台裝置）</h3>
     <div class="grid2" style="grid-template-columns:1fr 1fr 1fr"><div><label>主題</label><select name="theme">${[["", "自動"], ["light", "淺色"], ["dark", "深色"]].map(([v, n]) => `<option value="${v}" ${(S.theme || "") === v ? "selected" : ""}>${n}</option>`).join("")}</select></div>
@@ -3043,6 +3142,7 @@ function openSettings() {
     if (act !== "ok") return;
     const gk = (fd.get("gkey") || "").trim(); if (gk !== (S.gkey || "")) { S.gkey = gk; gErrShown = false; gFail.clear(); S.setMt = Date.now(); }
     const gc = Math.max(0, Math.round(+fd.get("gcap") || 0)); if (gc !== (S.gcap == null ? 1000 : S.gcap)) { S.gcap = gc; gCapShown = false; S.setMt = Date.now(); }
+    const rk = (fd.get("rkid") || "").trim(); if (rk !== (S.rkid || "")) { S.rkid = rk; S.setMt = Date.now(); }
     pushSettings();
     S.theme = fd.get("theme") || ""; S.fz = +fd.get("fz") || 1; S.mapc = fd.get("mapc") || ""; applyDisplay();
     t.name = fd.get("name").trim() || t.name; t.start = fd.get("start"); t.end = fd.get("end");
@@ -3104,10 +3204,10 @@ function syncSection() {
 // 給 sync.js 用的介面
 window.TravelApp = {
   // 帳號設定(Google 路線金鑰、每月上限、緊急卡資料), 登入同一帳號的裝置共用; mt 新的蓋舊的
-  settings: () => ({ gkey: S.gkey || "", gcap: S.gcap ?? 1000, me: S.me || null, mt: S.setMt || 0 }),
+  settings: () => ({ gkey: S.gkey || "", gcap: S.gcap ?? 1000, rkid: S.rkid || "", me: S.me || null, mt: S.setMt || 0 }),
   applySettings(d) {
     if (!d || (d.mt || 0) <= (S.setMt || 0)) return false;
-    S.gkey = d.gkey || ""; S.gcap = d.gcap ?? 1000; if (d.me) S.me = d.me; S.setMt = d.mt;
+    S.gkey = d.gkey || ""; S.gcap = d.gcap ?? 1000; S.rkid = d.rkid || ""; if (d.me) S.me = d.me; S.setMt = d.mt;
     gErrShown = false; gFail.clear(); saveLocal(); if (!$("#dlg").open) render(); return true;
   },
   trips: () => S.trips,
