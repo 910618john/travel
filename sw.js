@@ -1,7 +1,7 @@
 // 旅行手帳離線快取
 // 1. 自己的檔案: network-first(有網路拿最新, 沒網路用快取)
 // 2. 地圖底圖、Leaflet、收據辨識程式: cache-first(看過的地圖區域離線也能看)
-const CACHE = "travel-v87";
+const CACHE = "travel-v88";
 const LIB = "travel-lib-v1";
 const TILES = "travel-tiles-v1";
 const MAX_TILES = 3000;

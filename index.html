@@ -76,6 +76,7 @@ a{color:var(--acc)}
 /* iPhone Safari: 一般 div/tr 要有 cursor:pointer, 點擊才會傳到 document 的事件處理 */
 [data-edit],[data-act],[data-tab]:not(body),[data-f],[data-big],[data-say],[data-hit],[data-drag],[data-tip],[data-rmph],[data-d]{cursor:pointer;-webkit-tap-highlight-color:rgba(0,0,0,.06)}
 main{padding-bottom:84px}
+#dlgForm textarea{min-height:150px;max-height:55vh;line-height:1.55;resize:vertical}
 html{scrollbar-gutter:stable}
 @keyframes inR{from{opacity:0;transform:translateX(28px)}to{opacity:1;transform:none}}
 @keyframes inL{from{opacity:0;transform:translateX(-28px)}to{opacity:1;transform:none}}
@@ -576,6 +577,10 @@ function hoursCompose(fd) {
   if (x) parts.push(x);
   return parts.join(" ");
 }
+// 備註欄依內容自動長高(最多半個螢幕), 長文不用在小框框裡捲
+const fitTa = (ta) => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight + 4, innerHeight * 0.55) + "px"; };
+document.addEventListener("input", (e) => { if (e.target.matches && e.target.matches("#dlgForm textarea")) fitTa(e.target); });
+new MutationObserver(() => { const d = document.getElementById("dlg"); if (d && d.open) requestAnimationFrame(() => d.querySelectorAll("textarea").forEach(fitTa)); }).observe(document.getElementById("dlg") || document.body, { attributes: true, attributeFilter: ["open"] });
 function openForm(kind, item, after, pre) {
   const t = T(), isNew = !item, o = item ? { ...item } : { ...DEFAULTS[kind](), ...pre };
   const hint = o._hint; delete o._hint;
