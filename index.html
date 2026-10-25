@@ -32,7 +32,7 @@ nav button.on b img{transform:translateY(-2px) scale(1.12);filter:saturate(1.08)
 nav button.on{color:var(--acc);font-weight:600}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
 /* 長清單: 畫面外的卡片先不排版, 捲到才畫(大幅減少卡頓) */
-#view .card{content-visibility:auto;contain-intrinsic-size:auto 88px}
+
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .sp{flex:1}
 .mut{color:var(--mut);font-size:calc(13px*var(--fz,1))}
@@ -74,7 +74,7 @@ a{color:var(--acc)}
 .time{font-variant-numeric:tabular-nums;font-weight:600;min-width:46px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 /* iPhone Safari: 一般 div/tr 要有 cursor:pointer, 點擊才會傳到 document 的事件處理 */
-[data-edit],[data-act],[data-tab],[data-f],[data-big],[data-say],[data-hit],[data-drag],[data-tip],[data-rmph],[data-d]{cursor:pointer;-webkit-tap-highlight-color:rgba(0,0,0,.06)}
+[data-edit],[data-act],[data-tab]:not(body),[data-f],[data-big],[data-say],[data-hit],[data-drag],[data-tip],[data-rmph],[data-d]{cursor:pointer;-webkit-tap-highlight-color:rgba(0,0,0,.06)}
 main{padding-bottom:84px}
 html{scrollbar-gutter:stable}
 @keyframes inR{from{opacity:0;transform:translateX(28px)}to{opacity:1;transform:none}}
@@ -3040,7 +3040,8 @@ function render() {
   if (!V[S.tab]) S.tab = "home";
   document.body.dataset.tab = S.tab;
   if (render.city !== T().id + (T().loc && T().loc.name) + ccOf(T())) { render.city = T().id + (T().loc && T().loc.name) + ccOf(T()); applyDisplay(); } // 換旅程/目的地 → 換配色與插圖
-  $("#nav").innerHTML = TABS.map(([k, ic, n]) => `<button data-tab="${k}" class="${S.tab === k ? "on" : ""}"><b><img src="${ic}" alt="" width="30" height="30"></b>${n}</button>`).join("");
+  // 底部導覽只在換分頁時重建, 否則每次重畫圖示都會再彈跳一次
+  if ($("#nav").dataset.cur !== S.tab) $("#nav").dataset.cur = S.tab, $("#nav").innerHTML = TABS.map(([k, ic, n]) => `<button data-tab="${k}" class="${S.tab === k ? "on" : ""}"><b><img src="${ic}" alt="" width="30" height="30"></b>${n}</button>`).join("");
   try { $("#view").innerHTML = V[S.tab](t); }
   catch (err) {
     console.error(err);
@@ -3074,7 +3075,7 @@ document.addEventListener("click", async (e) => {
   const bg = e.target.closest("[data-big]");
   if (bg) return showBig(bg.dataset.big, bg.dataset.zh, bg.dataset.lang);
   if (Date.now() < calDrag.until) return;
-  const el = e.target.closest("[data-tab],[data-act],[data-f],[data-edit]");
+  const el = e.target.closest("[data-tab]:not(body),[data-act],[data-f],[data-edit]"); // body 也有 data-tab(分頁插圖用), 要排除
   if (!el || e.target.closest("a") || e.target.closest("[data-drag]")) return;
   const t = T();
   if (el.dataset.tab) { goTab(el.dataset.tab); return; }
@@ -3216,6 +3217,9 @@ document.addEventListener("pointerdown", (e) => {
 function animView(cls) {
   const v = $("#view"); if (!v || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   v.classList.remove("anim-l", "anim-r", "anim-f"); void v.offsetWidth; v.classList.add(cls);
+  // 動畫播完就拿掉 class, 之後存檔、重畫時才不會被瀏覽器重播一次(看起來像閃一下、抖一下)
+  clearTimeout(animView.t); animView.t = setTimeout(() => v.classList.remove("anim-l", "anim-r", "anim-f"), 700);
+  v.onanimationend = (e) => { if (e.target === v) { clearTimeout(animView.t); v.classList.remove("anim-l", "anim-r", "anim-f"); } };
   if (S.anim === "petal" && cls !== "anim-f") for (let i = 0; i < 10; i++) { // 花瓣飄落
     const d = document.createElement("i"); d.className = "petal";
     d.style.cssText = `left:${Math.random() * 100}vw;--dx:${(Math.random() - 0.5) * 120}px;--rot:${(Math.random() - 0.5) * 720}deg;animation-delay:${Math.random() * 0.35}s;transform:scale(${0.7 + Math.random() * 0.6})`;
