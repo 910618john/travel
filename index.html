@@ -457,6 +457,8 @@ const idb = new Promise((res, rej) => {
   r.onupgradeneeded = () => r.result.createObjectStore("f");
   r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
 });
+// 外部 API 一律 20 秒逾時: 網路卡住時不會一直顯示「查詢中」, 之後還能再試
+const xf = (u, o = {}) => fetch(u, o.signal || !AbortSignal.timeout ? o : { ...o, signal: AbortSignal.timeout(20000) });
 async function fput(id, blob) { const db = await idb; return new Promise((res, rej) => { const tx = db.transaction("f", "readwrite"); tx.objectStore("f").put(blob, id); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); }
 async function fget(id) { const db = await idb; return new Promise((res) => { const r = db.transaction("f").objectStore("f").get(id); r.onsuccess = () => res(r.result); r.onerror = () => res(null); }); }
 async function fdel(id) { const db = await idb; db.transaction("f", "readwrite").objectStore("f").delete(id); }
@@ -466,7 +468,7 @@ const CURS = ["TWD", "JPY", "KRW", "USD", "EUR", "GBP", "CNY", "HKD", "MOP", "TH
 async function loadRates(force) {
   if (!force && S.rates && Date.now() - S.rates.ts < 6 * 3600e3) return;
   try {
-    const r = await fetch("https://open.er-api.com/v6/latest/USD");
+    const r = await xf("https://open.er-api.com/v6/latest/USD");
     const j = await r.json();
     if (j.result === "success") { S.rates = { ts: Date.now(), r: j.rates }; save(); render(); }
   } catch (e) { if (force) alert("匯率更新失敗，使用快取"); }
@@ -693,7 +695,7 @@ function openForm(kind, item, after, pre) {
 const CUR2CC = { JPY: "JP", KRW: "KR", THB: "TH", SGD: "SG", CNY: "CN", AUD: "AU", NZD: "NZ", EUR: "FR", GBP: "GB", USD: "US", CAD: "CA", HKD: "HK", MOP: "MO", VND: "VN", MYR: "MY", PHP: "PH", IDR: "ID", CHF: "CH", CZK: "CZ", TRY: "TR", AED: "AE", TWD: "TW" };
 const ccOf = (t) => (t.loc && t.loc.cc) || CUR2CC[t.cur] || "";
 async function geoCity(q, cur) {
-  const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?count=10&language=zh&format=json&name=${encodeURIComponent(q)}`);
+  const r = await xf(`https://geocoding-api.open-meteo.com/v1/search?count=10&language=zh&format=json&name=${encodeURIComponent(q)}`);
   const rs = (await r.json()).results || [], want = CUR2CC[cur];
   // 同名城市很多(例如「福岡」), 優先選跟旅程幣別同一國的
   const x = (want && rs.find((y) => y.country_code === want)) || rs[0];
@@ -709,7 +711,7 @@ function loadWx(t) {
   const k = wxKey(t);
   if (!k || wxBusy[k] || (S.wx[k] && S.wx[k].v === 2 && Date.now() - S.wx[k].ts < 3 * 3600e3)) return;
   wxBusy[k] = 1;
-  fetch(`https://api.open-meteo.com/v1/forecast?latitude=${t.loc.lat}&longitude=${t.loc.lon}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_gusts_10m_max,precipitation_sum,snowfall_sum&timezone=auto&forecast_days=16`)
+  xf(`https://api.open-meteo.com/v1/forecast?latitude=${t.loc.lat}&longitude=${t.loc.lon}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_gusts_10m_max,precipitation_sum,snowfall_sum&timezone=auto&forecast_days=16`)
     .then((r) => r.json()).then((j) => {
       const d = {};
       j.daily.time.forEach((x, i) => (d[x] = [j.daily.weather_code[i], Math.round(j.daily.temperature_2m_max[i]), Math.round(j.daily.temperature_2m_min[i]), j.daily.precipitation_probability_max[i], j.daily.wind_gusts_10m_max?.[i], j.daily.precipitation_sum?.[i], j.daily.snowfall_sum?.[i]]));
@@ -764,14 +766,14 @@ function coordFromLink(s) {
 }
 async function geocode(q, t) {
   const cc = ccOf(t) ? `&countrycodes=${ccOf(t).toLowerCase()}` : "";
-  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=zh-TW${cc}&q=${encodeURIComponent(q)}`);
+  const r = await xf(`https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=zh-TW${cc}&q=${encodeURIComponent(q)}`);
   const j = await r.json();
   return j[0] ? [+j[0].lat, +j[0].lon] : null;
 }
 const GEOV = 2; // 定位方式改進過就換數字, 之前失敗的會再試一次
 const needGeo = (x) => x.lat == null && x.geoFail !== GEOV;
 async function photon(q) {
-  const r = await fetch(`https://photon.komoot.io/api/?limit=1&q=${encodeURIComponent(q)}`);
+  const r = await xf(`https://photon.komoot.io/api/?limit=1&q=${encodeURIComponent(q)}`);
   const f = ((await r.json()).features || [])[0];
   return f ? [f.geometry.coordinates[1], f.geometry.coordinates[0]] : null;
 }
@@ -1093,7 +1095,7 @@ function loadFxHist(from, to) {
   fxhBusy[k] = 1;
   const f = from.toLowerCase(), tt = to.toLowerCase();
   const dates = [...Array(16)].map((_, i) => i === 15 ? "latest" : new Date(Date.now() - (30 - i * 2) * 864e5).toLocaleDateString("sv"));
-  const get = (d) => fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${d}/v1/currencies/${f}.min.json`).then((r) => r.ok ? r.json() : null).catch(() => null);
+  const get = (d) => xf(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${d}/v1/currencies/${f}.min.json`).then((r) => r.ok ? r.json() : null).catch(() => null);
   Promise.all(dates.map(get)).then((js) => {
     const pts = js.filter((j) => j && j[f] && j[f][tt]).map((j) => ({ d: j.date, v: j[f][tt] }));
     const uniq = pts.filter((p, i) => !i || p.d !== pts[i - 1].d);
@@ -1185,7 +1187,7 @@ async function autoStations(t, d) {
       const k = stKey(x); if (k in S.stc) continue;
       try {
         const q = `[out:json][timeout:15];(nwr["railway"="station"](around:1500,${x.lat},${x.lon});nwr["station"="subway"](around:1500,${x.lat},${x.lon}););out center 20;`;
-        const j = await (await fetch("https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(q))).json();
+        const j = await (await xf("https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(q))).json();
         const st = (j.elements || []).map((e) => ({ n: e.tags && (e.tags.name || e.tags["name:ja"]), lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon })).filter((e) => e.n && e.lat != null)
           .map((e) => ({ ...e, d: distKm(x, e) })).sort((p, q) => p.d - q.d)[0];
         S.stc[k] = st ? { n: st.n, lat: st.lat, lon: st.lon } : {}; got++;
@@ -1233,7 +1235,7 @@ async function gRoute(a, b) {
     body.departureTime = d.toISOString();
   } // 過去的時間 Google 不收, 就用現在
   try {
-    const r = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", { method: "POST", headers: { "Content-Type": "application/json", "X-Goog-Api-Key": S.gkey, "X-Goog-FieldMask": "routes.duration,routes.distanceMeters,routes.legs.steps.travelMode,routes.legs.steps.staticDuration,routes.legs.steps.transitDetails" }, body: JSON.stringify(body) });
+    const r = await xf("https://routes.googleapis.com/directions/v2:computeRoutes", { method: "POST", headers: { "Content-Type": "application/json", "X-Goog-Api-Key": S.gkey, "X-Goog-FieldMask": "routes.duration,routes.distanceMeters,routes.legs.steps.travelMode,routes.legs.steps.staticDuration,routes.legs.steps.transitDetails" }, body: JSON.stringify(body) });
     const j = await r.json();
     if (!r.ok) throw new Error((j.error && j.error.message) || r.status);
     const route = (j.routes || [])[0];
@@ -2511,7 +2513,7 @@ async function findNear(t, kind) {
   const lat = pos.latitude, lon = pos.longitude; nearRes = { kind, lat, lon, busy: "搜尋中…" }; render();
   try {
     const q = `[out:json][timeout:15];(${k[2].split(";").map((x) => `${x}(around:1000,${lat},${lon});`).join("")});out center 40;`;
-    const j = await (await fetch("https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(q))).json();
+    const j = await (await xf("https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(q))).json();
     const list = (j.elements || []).map((e) => { const p = { lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon }; return { name: e.tags?.["name:zh"] || e.tags?.name || e.tags?.brand || kind, brand: e.tags?.brand && e.tags.brand !== e.tags?.name ? e.tags.brand : "", ...p, d: distKm({ lat, lon }, p) }; })
       .filter((x) => x.lat != null).sort((a, b) => a.d - b.d).slice(0, 15);
     nearRes = { kind, lat, lon, list };
@@ -2535,10 +2537,10 @@ const OCR_LANG = { JPY: "jpn+eng", KRW: "kor+eng", CNY: "chi_sim+eng", HKD: "chi
 const SRC_LANG = { JPY: "ja", KRW: "ko", THB: "th", CNY: "zh-CN", VND: "vi", EUR: "fr", IDR: "id" };
 async function trText(text, t) {
   try {
-    const j = await (await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=${encodeURIComponent(text.slice(0, 4000))}`)).json();
+    const j = await (await xf(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=${encodeURIComponent(text.slice(0, 4000))}`)).json();
     const s = (j[0] || []).map((x) => x[0]).join(""); if (s) return s;
   } catch (e) { }
-  const j = await (await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0, 450))}&langpair=${SRC_LANG[t.cur] || "en"}|zh-TW`)).json();
+  const j = await (await xf(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0, 450))}&langpair=${SRC_LANG[t.cur] || "en"}|zh-TW`)).json();
   return j.responseData && j.responseData.translatedText || "";
 }
 let trState = { src: "", out: "", busy: "" };
@@ -2584,7 +2586,7 @@ const holBusy = {};
 function loadHol(cc, y) {
   const k = cc + y; if (!cc || holBusy[k] || (S.hol[k] && Date.now() - S.hol[k].ts < 30 * 864e5)) return;
   holBusy[k] = 1;
-  fetch(`https://date.nager.at/api/v3/PublicHolidays/${y}/${cc}`).then((r) => r.json()).then((j) => {
+  xf(`https://date.nager.at/api/v3/PublicHolidays/${y}/${cc}`).then((r) => r.json()).then((j) => {
     S.hol[k] = { ts: Date.now(), d: Object.fromEntries(j.map((x) => [x.date, x.localName + (x.localName !== x.name ? `（${x.name}）` : "")])) }; saveLocal(); if (!$("#dlg").open) render();
   }).catch(() => { S.hol[k] = { ts: Date.now() - 27 * 864e5, d: {} }; }).finally(() => delete holBusy[k]); // 失敗: 3 天後再試
 }
@@ -2656,7 +2658,7 @@ let eqList = null, eqTs = 0;
 const EQS = { 10: "1", 20: "2", 30: "3", 40: "4", 45: "5弱", 50: "5強", 55: "6弱", 60: "6強", 70: "7" };
 function loadEq(force) {
   if (!force && Date.now() - eqTs < 5 * 60e3) return; eqTs = Date.now();
-  fetch("https://api.p2pquake.net/v2/history?codes=551&codes=552&limit=30").then((r) => r.json()).then((j) => {
+  xf("https://api.p2pquake.net/v2/history?codes=551&codes=552&limit=30").then((r) => r.json()).then((j) => {
     const t = T(), before = eqRelevant(t).map((q) => q.id).join();
     if (!Array.isArray(j)) return; eqList = j;
     for (const q of eqRelevant(t)) if (!(S.eqSeen ||= []).includes(q.id)) { S.eqSeen.push(q.id); S.eqSeen = S.eqSeen.slice(-50); saveLocal(); notify(q.code === 552 ? "🌊 海嘯資訊" : "🌏 地震", eqLine(t, q)); }
@@ -2735,12 +2737,12 @@ async function lookupItem(code) {
   const info = { code, name: "", brand: "", img: "", qty: "", desc: "", jp: [], src: "" };
   for (const base of ["world.openfoodfacts.org", "world.openbeautyfacts.org", "world.openproductsfacts.org"]) {
     try {
-      const j = await (await fetch(`https://${base}/api/v2/product/${code}.json?fields=product_name,product_name_ja,product_name_zh,brands,image_front_url,image_url,quantity,ingredients_text,categories`)).json();
+      const j = await (await xf(`https://${base}/api/v2/product/${code}.json?fields=product_name,product_name_ja,product_name_zh,brands,image_front_url,image_url,quantity,ingredients_text,categories`)).json();
       if (j.status === 1 && j.product) { const p = j.product; Object.assign(info, { name: p.product_name_ja || p.product_name || p.product_name_zh || "", brand: p.brands || "", img: p.image_front_url || p.image_url || "", qty: p.quantity || "", desc: (p.ingredients_text || p.categories || "").slice(0, 300), src: base.split(".")[1] }); break; }
     } catch (e) { }
   }
   if (S.rkid) try {
-    const j = await (await fetch(`https://app.rakuten.co.jp/services/api/IchibaItem/Search/20220601?format=json&formatVersion=2&hits=10&sort=%2BitemPrice&keyword=${code}&applicationId=${encodeURIComponent(S.rkid)}`)).json();
+    const j = await (await xf(`https://app.rakuten.co.jp/services/api/IchibaItem/Search/20220601?format=json&formatVersion=2&hits=10&sort=%2BitemPrice&keyword=${code}&applicationId=${encodeURIComponent(S.rkid)}`)).json();
     info.jp = (j.Items || []).map((x) => ({ n: x.itemName, p: x.itemPrice, shop: x.shopName, url: x.itemUrl, img: (x.mediumImageUrls || [])[0] }));
     if (!info.name && info.jp[0]) { info.name = info.jp[0].n.replace(/【[^】]*】|\[[^\]]*\]/g, "").slice(0, 60); info.img ||= info.jp[0].img || ""; info.src = "樂天"; }
   } catch (e) { }
