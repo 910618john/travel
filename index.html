@@ -442,7 +442,12 @@ addEventListener("visibilitychange", () => {
 });
 addEventListener("pagehide", flushPush);
 // 舊版建立的旅程缺新功能的欄位(錢包、日記、必買…), 載入時補上預設值
-function fillTrip(t) { const base = newTrip(); for (const k of Object.keys(base)) if (t[k] == null) t[k] = base[k]; return t; }
+function fillTrip(t) {
+  const base = newTrip(); for (const k of Object.keys(base)) if (t[k] == null) t[k] = base[k];
+  // 行事曆裡從景點排進來、自己沒寫備註的, 帶入景點的備註
+  for (const i of t.itin || []) { const sp = (i.spotId && t.spots.find((x) => x.id === i.spotId)) || t.spots.find((x) => x.name === i.title); if (sp && !i.note && sp.note) i.note = sp.note; }
+  return t;
+}
 S.trips.forEach(fillTrip);
 const T = () => { const t = S.trips.find((x) => x.id === S.cur) || S.trips[0]; return t.diary && t.shop ? t : fillTrip(t); };
 
@@ -651,6 +656,16 @@ function openForm(kind, item, after, pre) {
     const hadDT = item ? item.date + item.time : "";
     // 地點改了就重新定位
     if (item && ((kind === "itin" && item.place !== o.place) || (kind === "spots" && (item.addr !== o.addr || item.name !== o.name)) || (kind === "books" && (item.from !== o.from || item.title !== o.title)))) { o.lat = o.lon = null; o.geoFail = false; }
+    // 景點改了備註/地址/營業時間 → 已排進行事曆的同一個景點跟著更新(行程那邊自己改過的不蓋掉)
+    if (kind === "spots" && !isNew) {
+      const linked = t.itin.filter((i) => i.spotId === item.id || (!i.spotId && i.title === item.name));
+      for (const i of linked) {
+        if ((i.note || "") === (item.note || "") || !i.note) i.note = o.note || "";
+        if ((i.place || "") === (item.addr || item.name || "") || !i.place) { if (o.addr && i.place !== o.addr) { i.place = o.addr; i.lat = o.lat ?? null; i.lon = o.lon ?? null; } }
+        if (i.title === item.name && o.name !== item.name) i.title = o.name;
+        i.spotId ||= item.id;
+      }
+    }
     if (isNew) { o.id = uid(); t[kind].push(o); } else Object.assign(item, o);
     if (kind === "itin") { const it = isNew ? o : item; if (isNew || hadDT !== it.date + it.time) placeByTime(t, it); }
     save(); render(); after && after(o);
