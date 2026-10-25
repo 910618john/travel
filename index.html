@@ -609,6 +609,11 @@ function openForm(kind, item, after, pre) {
     };
     f.elements.cat.addEventListener("change", upd); upd();
   }
+  // 必買「在哪買」: 列出已經填過的地點, 點選就會跟同一家店放一起
+  if (kind === "shop" && f.elements.where) {
+    const ws = [...new Set(t.shop.map((x) => (x.where || "").trim()).filter(Boolean))];
+    if (ws.length) { const dl = document.createElement("datalist"); dl.id = "whereList"; dl.innerHTML = ws.map((w) => `<option value="${esc(w)}">`).join(""); f.appendChild(dl); f.elements.where.setAttribute("list", "whereList"); }
+  }
   // 新增時直接跳到最重要的欄位(記帳=金額)
   if (isNew) setTimeout(() => { const el = f.elements[kind === "exp" ? "amt" : (SCHEMA[kind].find((x) => x[3]) || [])[0]]; if (el && !el.value) el.focus(); }, 50);
   const dlg = $("#dlg");
@@ -2730,7 +2735,7 @@ const TABS = [["home", "assets/nav-home-v1.webp", "總覽"], ["itin", "assets/na
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
 const dayName = (d) => d ? ["日", "一", "二", "三", "四", "五", "六"][new Date(d + "T00:00").getDay()] : "";
 const dt = (s) => s ? s.replace("T", " ") : "";
-const UI_KEYS = ["iv", "tool", "pk", "ex", "pm", "pg", "sv", "tk"];
+const UI_KEYS = ["iv", "tool", "pk", "ex", "pm", "pg", "sv", "tk", "sg"];
 // 新版行程預設用行事曆; 以前停在「清單」的也切過去一次
 if (S.tab === "spots") { S.tab = "itin"; S.ui = { ...(S.ui || {}), iv: "景點" }; }
 if (S.ui && !S.ui.cal1) { if (S.ui.iv === "清單") S.ui.iv = "行事曆"; S.ui.cal1 = 1; }
@@ -3004,14 +3009,21 @@ function shopHtml(t) {
   if (!t.shop.length) return scanBtn + `<div class="empty">必買清單是空的，按 ＋ 新增<br>可以附商品照片，到店裡直接給店員看</div>`;
   const left = t.shop.filter((x) => !x.ok), done = t.shop.length - left.length, grid = (filt.sv || "圖卡") === "圖卡";
   const est = (arr) => arr.reduce((s, x) => s + toHome((+x.price || 0) * (+x.qty || 1), x.cur), 0);
-  const byCat = {}; t.shop.forEach((x) => (byCat[x.cat] ||= []).push(x));
+  // 分組: 依地點(同一家店/區域的放一起, 圖片集中) 或 依分類
+  const byPlace = (filt.sg || "依地點") === "依地點", byCat = {};
+  t.shop.forEach((x) => (byCat[byPlace ? (x.where || "").trim() || "　未指定地點" : x.cat] ||= []).push(x));
+  const groups = Object.entries(byCat).sort((a, b) => byPlace ? (a[0].startsWith("　") - b[0].startsWith("　")) || b[1].length - a[1].length : 0);
   const img = (x, cls) => x.fileId && !/pdf/.test(x.fileType || "") ? `<img class="${cls}" data-fid="${x.fileId}" data-act="shopimg" data-id="${x.id}" alt="${esc(x.name)}">` : x.img && /^https:/.test(x.img) ? `<img class="${cls}" src="${esc(x.img)}" data-edit="shop:${x.id}" alt="${esc(x.name)}" style="object-fit:contain;background:#fff">` : `<div class="${cls} noimg" data-edit="shop:${x.id}">🛍</div>`;
   const cmp = (x) => { if (!x.price || !x.tw) return ""; const d = x.tw - toHome(x.price, x.cur); return ` <span style="color:${d > 0 ? "var(--acc)" : "var(--red)"};font-weight:700">${d > 0 ? `省 ${fmt(d)}` : `貴 ${fmt(-d)}`}</span>`; };
   const price = (x) => x.price ? `${fmt(x.price, 2)} ${x.cur}${x.cur !== t.home ? `<span class="mut"> ≈${fmt(toHome(x.price * (+x.qty || 1), x.cur))}</span>` : ""}${cmp(x)}` : "";
-  const meta = (x) => [x.where && "📍 " + esc(x.where), x.who && "🎁 " + esc(x.who)].filter(Boolean).join("・") + (x.where ? cpTag(x.where) : "");
+  const meta = (x) => [!byPlace && x.where && "📍 " + esc(x.where), byPlace && x.cat && esc(x.cat), x.who && "🎁 " + esc(x.who)].filter(Boolean).join("・") + (!byPlace && x.where ? cpTag(x.where) : "");
+  const head = (c, arr) => byPlace && !c.startsWith("　")
+    ? `<h2 class="row" style="gap:6px">📍 ${esc(c)} <span class="mut" style="font-weight:400">${arr.filter((x) => x.ok).length}/${arr.length}・約 ${fmt(est(arr.filter((x) => !x.ok)))} ${t.home}</span>${cpTag(c)}<span class="sp"></span><a class="sm" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c)}" target="_blank" rel="noopener" style="font-weight:400;font-size:calc(13px*var(--fz,1))">地圖 ↗</a></h2>`
+    : `<h2>${esc(c.trim())} <span class="mut" style="font-weight:400">${arr.filter((x) => x.ok).length}/${arr.length}</span></h2>`;
   return scanBtn + `<div class="card"><div class="row"><span class="sp">已買 ${done}/${t.shop.length}</span><span class="mut">還沒買的預估 ${fmt(est(left))} ${t.home}</span></div><div class="bar"><i style="width:${(done / t.shop.length) * 100}%"></i></div></div>
-    <div class="chips">${["圖卡", "清單"].map((m) => `<button class="${m === (filt.sv || "圖卡") ? "on" : ""}" data-f="sv" data-v="${m}">${m === "圖卡" ? "🖼" : "📋"} ${m}</button>`).join("")}</div>` +
-    Object.entries(byCat).map(([c, arr]) => `<h2>${esc(c)} <span class="mut" style="font-weight:400">${arr.filter((x) => x.ok).length}/${arr.length}</span></h2>` + (grid
+    <div class="row" style="margin-bottom:8px;gap:6px"><div class="chips" style="margin:0">${["圖卡", "清單"].map((m) => `<button class="${m === (filt.sv || "圖卡") ? "on" : ""}" data-f="sv" data-v="${m}">${m === "圖卡" ? "🖼" : "📋"} ${m}</button>`).join("")}</div><div class="chips" style="margin:0">${["依地點", "依分類"].map((m) => `<button class="${m === (filt.sg || "依地點") ? "on" : ""}" data-f="sg" data-v="${m}">${m === "依地點" ? "📍" : "🏷"} ${m}</button>`).join("")}</div></div>
+    ${byPlace && t.shop.some((x) => !(x.where || "").trim()) ? '<div class="mut" style="margin-bottom:4px">同一家店的東西填一樣的「在哪買」，就會放在同一區</div>' : ""}` +
+    groups.map(([c, arr]) => head(c, arr) + (grid
       ? `<div class="shopgrid">${arr.sort((a, b) => !!a.ok - !!b.ok).map((x) => `<div class="stile ${x.ok ? "done" : ""}">
           ${img(x, "simg")}
           <label class="scheck"><input type="checkbox" style="width:auto" data-act="shoptog" data-id="${x.id}" ${x.ok ? "checked" : ""}></label>
