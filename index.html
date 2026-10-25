@@ -603,6 +603,7 @@ function openForm(kind, item, after, pre) {
     else if (type === "check") h += `<label><input type="checkbox" style="width:auto" name="${k}" ${v ? "checked" : ""}> ${lab}</label>`;
     else if (type === "hours") h += hoursPicker(v);
     else if (type === "time") h += timeSel(k, v);
+    else if (type === "file" && kind === "shop") h += `<div class="photos" id="shPh"></div><input type="file" name="file" accept="image/*" multiple><div class="mut">可以一次選多張（例如包裝正面、背面、標價）</div>`;
     else if (type === "file") h += `${o.fileName ? `<div class="mut">目前：${esc(o.fileName)}</div>` : ""}<input type="file" name="file" accept="image/*,application/pdf">`;
     else h += `<input name="${k}" type="${type}" ${type === "number" ? 'step="any" inputmode="decimal"' : ""} value="${esc(v)}" ${req ? "required" : ""}>`;
   }
@@ -619,6 +620,16 @@ function openForm(kind, item, after, pre) {
     };
     f.elements.cat.addEventListener("change", upd); upd();
   }
+  // 必買多張照片: 第一張是封面(fileId), 其他放 photos; 按 ✕ 拿掉, 存檔時才真的刪
+  const shKeep = kind === "shop" ? [...(o.fileId ? [{ fileId: o.fileId, fileName: o.fileName, fileType: o.fileType }] : []), ...(o.photos || [])] : [];
+  const shDrop = [];
+  const drawSh = () => {
+    const box = f.querySelector("#shPh"); if (!box) return;
+    box.innerHTML = shKeep.map((p, i) => `<div style="position:relative"><img data-fid="${p.fileId}" alt="">${i === 0 ? '<span class="tag" style="position:absolute;left:2px;bottom:2px;font-size:10px">封面</span>' : ""}<button type="button" class="sm del" data-shrm="${i}" style="position:absolute;top:2px;right:2px;padding:0 6px">✕</button></div>`).join("");
+    box.querySelectorAll("[data-shrm]").forEach((b) => (b.onclick = () => { shDrop.push(...shKeep.splice(+b.dataset.shrm, 1)); drawSh(); }));
+    fillThumbs();
+  };
+  drawSh();
   // 必買「在哪買」: 列出已經填過的地點, 點選就會跟同一家店放一起
   if (kind === "shop" && f.elements.where) {
     const ws = [...new Set(t.shop.map((x) => (x.where || "").trim()).filter(Boolean))];
@@ -635,7 +646,7 @@ function openForm(kind, item, after, pre) {
       const idx = t[kind].findIndex((x) => x.id === o.id), gone = t[kind][idx];
       t[kind].splice(idx, 1); save(); render();
       toast(`已刪除「${gone.title || gone.name || gone.note || gone.text || gone.cat || "項目"}」`, "復原", () => { t[kind].splice(Math.min(idx, t[kind].length), 0, gone); save(); render(); },
-        () => { if (gone.fileId) { fdel(gone.fileId); window.TravelSync && TravelSync.delFile(t, gone.fileId); } });
+        () => { for (const p of [gone, ...(gone.photos || [])]) if (p.fileId) { fdel(p.fileId); window.TravelSync && TravelSync.delFile(t, p.fileId); } });
       return;
     }
     if (act !== "ok") { if (isNew && o.fileId) { fdel(o.fileId); window.TravelSync && TravelSync.delFile(t, o.fileId); } return; }
@@ -644,6 +655,11 @@ function openForm(kind, item, after, pre) {
       if (type === "split") o.split = fd.getAll("split");
       else if (type === "check") o[k] = fd.has(k);
       else if (type === "number") o[k] = parseFloat(fd.get(k)) || 0;
+      else if (type === "file" && kind === "shop") {
+        for (const file of fd.getAll("file")) if (file && file.size) shKeep.push(await storeFile(t, file));
+        for (const p of shDrop) { fdel(p.fileId); window.TravelSync && TravelSync.delFile(t, p.fileId); }
+        const [c, ...rest] = shKeep; o.fileId = c ? c.fileId : ""; o.fileName = c ? c.fileName : ""; o.fileType = c ? c.fileType : ""; o.photos = rest;
+      }
       else if (type === "file") {
         const file = fd.get("file");
         if (file && file.size) {
@@ -3040,7 +3056,7 @@ function shopHtml(t) {
   const byPlace = (filt.sg || "依地點") === "依地點", byCat = {};
   t.shop.forEach((x) => (byCat[byPlace ? (x.where || "").trim() || "　未指定地點" : x.cat] ||= []).push(x));
   const groups = Object.entries(byCat).sort((a, b) => byPlace ? (a[0].startsWith("　") - b[0].startsWith("　")) || b[1].length - a[1].length : 0);
-  const img = (x, cls) => x.fileId && !/pdf/.test(x.fileType || "") ? `<img class="${cls}" data-fid="${x.fileId}" data-act="shopimg" data-id="${x.id}" alt="${esc(x.name)}">` : x.img && /^https:/.test(x.img) ? `<img class="${cls}" src="${esc(x.img)}" data-edit="shop:${x.id}" alt="${esc(x.name)}" style="object-fit:contain;background:#fff">` : `<div class="${cls} noimg" data-edit="shop:${x.id}">🛍</div>`;
+  const img = (x, cls) => x.fileId && !/pdf/.test(x.fileType || "") ? `<img class="${cls}" data-fid="${x.fileId}" data-act="shopimg" data-id="${x.id}" alt="${esc(x.name)}">${(x.photos || []).length ? `<span class="tag" data-act="shopimg" data-id="${x.id}" style="${cls === "simg" ? "position:absolute;right:6px;top:6px;z-index:1" : "align-self:flex-start"}">📷 ${(x.photos || []).length + 1}</span>` : ""}` : x.img && /^https:/.test(x.img) ? `<img class="${cls}" src="${esc(x.img)}" data-edit="shop:${x.id}" alt="${esc(x.name)}" style="object-fit:contain;background:#fff">` : `<div class="${cls} noimg" data-edit="shop:${x.id}">🛍</div>`;
   const cmp = (x) => { if (!x.price || !x.tw) return ""; const d = x.tw - toHome(x.price, x.cur); return ` <span style="color:${d > 0 ? "var(--acc)" : "var(--red)"};font-weight:700">${d > 0 ? `省 ${fmt(d)}` : `貴 ${fmt(-d)}`}</span>`; };
   const price = (x) => x.price ? `${fmt(x.price, 2)} ${x.cur}${x.cur !== t.home ? `<span class="mut"> ≈${fmt(toHome(x.price * (+x.qty || 1), x.cur))}</span>` : ""}${cmp(x)}` : "";
   const meta = (x) => [!byPlace && x.where && "📍 " + esc(x.where), byPlace && x.cat && esc(x.cat), x.who && "🎁 " + esc(x.who)].filter(Boolean).join("・") + (!byPlace && x.where ? cpTag(x.where) : "");
@@ -3103,13 +3119,17 @@ async function showCoupon(t, c) {
 }
 // 商品照片放大(給店員看)
 async function showShopImg(t, x) {
-  let b = await fget(x.fileId);
-  if (!b && window.TravelSync && TravelSync.user) { b = await TravelSync.getFile(t, x.fileId); if (b) await fput(x.fileId, b); }
-  if (!b) return alert("找不到照片（可能在別的裝置上傳）");
-  const dlg = $("#dlg"); dlg.onclose = null;
-  $("#dlgForm").innerHTML = `<img src="${URL.createObjectURL(b)}" style="width:100%;max-height:70vh;object-fit:contain;border-radius:8px;background:#fff">
+  const all = [x, ...(x.photos || [])].filter((p) => p.fileId), urls = [];
+  for (const p of all) {
+    let b = await fget(p.fileId);
+    if (!b && window.TravelSync && TravelSync.user) { b = await TravelSync.getFile(t, p.fileId).catch(() => null); if (b) await fput(p.fileId, b); }
+    if (b) urls.push(URL.createObjectURL(b));
+  }
+  if (!urls.length) return alert("找不到照片（可能在別的裝置上傳）");
+  const dlg = $("#dlg"); dlg.onclose = () => urls.forEach((u) => URL.revokeObjectURL(u));
+  $("#dlgForm").innerHTML = `${urls.map((u) => `<img src="${u}" style="width:100%;max-height:70vh;object-fit:contain;border-radius:8px;background:#fff;margin-bottom:8px">`).join("")}
     <div class="huge" style="font-size:calc(26px*var(--fz,1));padding:10px 0 0">${esc(x.name)}</div>${x.note ? `<div class="mut" style="text-align:center">${esc(x.note)}</div>` : ""}
-    <div class="row" style="margin-top:12px"><span class="sp"></span><button value="cancel" class="pri">關閉</button></div>`;
+    <div class="row" style="margin-top:12px">${urls.length > 1 ? `<span class="mut">共 ${urls.length} 張，往下捲看全部</span>` : ""}<span class="sp"></span><button value="cancel" class="pri">關閉</button></div>`;
   dlg.showModal();
 }
 function itinCard(i, drag) {
@@ -3476,7 +3496,7 @@ function openSettings() {
 
     if (act === "deltrip") {
       if (!confirm(`刪除「${t.name}」？無法復原`)) return;
-      [...t.tickets, ...t.exp, ...t.shop, ...t.coupons, ...t.diary.flatMap((d) => d.photos)].forEach((k) => { if (k.fileId) { fdel(k.fileId); window.TravelSync && TravelSync.delFile(t, k.fileId); } });
+      [...t.tickets, ...t.exp, ...t.shop, ...t.shop.flatMap((x) => x.photos || []), ...t.coupons, ...t.diary.flatMap((d) => d.photos)].forEach((k) => { if (k.fileId) { fdel(k.fileId); window.TravelSync && TravelSync.delFile(t, k.fileId); } });
       S.trips = S.trips.filter((x) => x.id !== t.id);
       S.deleted[t.id] = Date.now(); delete snap[t.id];
       window.TravelSync && TravelSync.remove(t.id, S.deleted[t.id]);
@@ -3499,7 +3519,7 @@ function openSettings() {
       const me = TravelSync.user.toLowerCase();
       const list = fd.get("share").split(/[,，;\s]+/).map((x) => x.trim().toLowerCase()).filter((x) => /.+@.+\..+/.test(x));
       if (list.length || t.shared) {
-        if (!t.shared) [...t.tickets, ...t.exp, ...t.shop, ...t.coupons, ...t.diary.flatMap((d) => d.photos)].forEach((k) => k.fileId && delete S.upl[k.fileId]); // 檔案改傳到共享區
+        if (!t.shared) [...t.tickets, ...t.exp, ...t.shop, ...t.shop.flatMap((x) => x.photos || []), ...t.coupons, ...t.diary.flatMap((d) => d.photos)].forEach((k) => k.fileId && delete S.upl[k.fileId]); // 檔案改傳到共享區
         t.shared = true; t.emails = [...new Set([me, ...list])];
         setTimeout(() => TravelApp.uploadPending(), 1500);
       }
@@ -3583,7 +3603,7 @@ window.TravelApp = {
   isBlank: (t) => isBlank(t),
   async uploadPending() {
     if (!window.TravelSync || !TravelSync.user) return;
-    for (const t of S.trips) for (const it of [...t.tickets, ...t.exp, ...t.shop, ...t.coupons, ...t.diary.flatMap((d) => d.photos)]) {
+    for (const t of S.trips) for (const it of [...t.tickets, ...t.exp, ...t.shop, ...t.shop.flatMap((x) => x.photos || []), ...t.coupons, ...t.diary.flatMap((d) => d.photos)]) {
       if (!it.fileId || S.upl[it.fileId]) continue;
       const b = await fget(it.fileId); if (!b) continue;
       try { const r = await TravelSync.putFile(t, it.fileId, b); if (r) { S.upl[it.fileId] = r === true ? 1 : "big"; saveLocal(); } } catch (e) { }
