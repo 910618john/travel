@@ -1872,7 +1872,7 @@ function calHtml(t) {
     if (bad) late.add(b.i.id);
     const icon = (MODES.find((x) => x[0] === b.i.mode) || ["🚃"])[0].split(" ")[0];
     const brief = b.i.how || (tv.steps && tv.steps.length ? stepsBrief(tv.steps) : tv.st ? `${tv.st[0]}→${tv.st[1]}` : "");
-    h += `<div class="caltr${bad ? " late" : ""}" data-act="route" data-k="${k}" title="${tv.g ? "Google 路線" : tv.st ? "依最近車站估算" : tv.est ? "依距離估算" : "自己填的"}・點開看怎麼去" style="top:${((Math.max(st0, lo * 60) - lo * 60) / 60) * HPX}px;height:${Math.max(14, (tv.m / 60) * HPX - 2)}px">${brief ? "" : icon + " "}${tv.est ? "約" : ""}${tv.m}分${bad ? " 來不及" : ""}${brief ? " " + esc(brief) : ""}</div>`;
+    h += `<div class="caltr${bad ? " late" : ""}" data-act="route" data-k="${k}" data-trdrag="${k}" data-trs="${st0}" data-trm="${tv.m}" title="${tv.g ? "Google 路線" : tv.st ? "依最近車站估算" : tv.est ? "依距離估算" : "自己填的"}・點開看怎麼去" style="top:${((Math.max(st0, lo * 60) - lo * 60) / 60) * HPX}px;height:${Math.max(14, (tv.m / 60) * HPX - 2)}px">${brief ? "" : icon + " "}${tv.est ? "約" : ""}<span class="trl">${tv.m}分${bad ? " 來不及" : ""}${brief ? " " + esc(brief) : ""}</span><div class="calrs noprint" data-trrs></div></div>`;
   }
   for (const v of calLayout(evs)) {
     const top = ((v.s - lo * 60) / 60) * HPX, ht = Math.max(26, ((v.e - v.s) / 60) * HPX - 3), w = 100 / v.cols, i = v.i, warn = hoursWarn(i, t) || (late.has(i.id) ? "⚠️ 交通來不及" : "");
@@ -1890,6 +1890,48 @@ function calHtml(t) {
 }
 // 行事曆拖移: 滑鼠直接拖; 手指長按 0.35 秒再拖(不影響一般捲動). 拖本體=改時間, 拖底部=改結束時間, 15 分鐘一格
 const calDrag = { on: false, until: 0 };
+// 拖交通方塊: 拖整塊 = 改出發時間(下一個行程跟著移動); 拖下緣 = 改交通要幾分鐘
+document.addEventListener("pointerdown", (e) => {
+  const el = e.target.closest && e.target.closest("[data-trdrag]"); if (!el || e.button > 0) return;
+  const cal = el.closest(".cal"), lo = +cal.dataset.lo, k = +el.dataset.trdrag, t = T(), seq = routeSeq(t, filt.cd), nx = seq[k];
+  if (!nx || !nx.dest) return;
+  const st = { resize: !!e.target.closest("[data-trrs]"), y0: e.clientY, top0: parseFloat(el.style.top), h0: parseFloat(el.style.height) + 2, s0: +el.dataset.trs, m0: +el.dataset.trm, pid: e.pointerId, active: false };
+  const lbl = el.querySelector(".trl"), txt0 = lbl.textContent;
+  const activate = () => { st.active = calDrag.on = true; el.classList.add("caldrag"); el.style.zIndex = 3; navigator.vibrate && navigator.vibrate(15); };
+  if (e.pointerType === "mouse") st.armed = true; else st.timer = setTimeout(() => { st.armed = true; activate(); }, 350);
+  const move = (ev) => {
+    if (ev.pointerId !== st.pid) return;
+    const dy = ev.clientY - st.y0;
+    if (!st.active) { if (st.armed && Math.abs(dy) > 4) activate(); else if (!st.armed && Math.abs(dy) > 8) return end(); if (!st.active) return; }
+    if (st.resize) {
+      st.m = Math.max(5, Math.round((((st.h0 + dy) / HPX) * 60) / 5) * 5);
+      el.style.height = Math.max(14, (st.m / 60) * HPX - 2) + "px"; lbl.textContent = `交通 ${st.m} 分`;
+    } else {
+      st.s = Math.round((st.s0 + (dy / HPX) * 60) / 15) * 15; // 出發時間 15 分一格
+      el.style.top = ((st.s - lo * 60) / 60) * HPX + "px"; lbl.textContent = `${hm(st.s)} 出發 → ${hm(st.s + st.m0)} 到`;
+    }
+  };
+  const end = () => {
+    clearTimeout(st.timer); removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", end);
+    el.classList.remove("caldrag"); el.style.zIndex = ""; calDrag.on = false;
+  };
+  const up = () => {
+    const was = st.active; end(); if (!was) return;
+    calDrag.until = Date.now() + 120;
+    const b = nx.i, old = [b.time, b.end, b.travel];
+    if (st.resize) { if (st.m == null) return render(); b.travel = st.m; }
+    else {
+      if (st.s == null) return render();
+      const ns = st.s + st.m0, s0 = toMin(b.time), dur = !isMulti(b) && b.end && toMin(b.end) > s0 ? toMin(b.end) - s0 : null;
+      b.time = hm(((ns % 1440) + 1440) % 1440); if (dur != null) b.end = hm(Math.min(ns + dur, 1439));
+      if (!(+b.travel > 0)) b.travel = st.m0; // 固定這段交通時間, 免得重算後又跑掉
+      if (!isMulti(b)) placeByTime(t, b);
+    }
+    save(); render();
+    toast(st.resize ? `交通改成 ${b.travel} 分` : `「${b.title}」改成 ${b.time} 開始`, "復原", () => { [b.time, b.end, b.travel] = old; if (!isMulti(b)) placeByTime(t, b); save(); render(); });
+  };
+  addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", end);
+});
 document.addEventListener("pointerdown", (e) => {
   const el = e.target.closest && e.target.closest("[data-cdrag]"); if (!el || e.button > 0) return;
   const cal = el.closest(".cal"), lo = +cal.dataset.lo;
@@ -2009,7 +2051,7 @@ document.addEventListener("pointerdown", (e) => {
 });
 // 拖移中不要讓頁面跟著捲
 document.addEventListener("touchmove", (e) => { if (calDrag.on) e.preventDefault(); }, { passive: false });
-document.addEventListener("contextmenu", (e) => { if (e.target.closest && e.target.closest("[data-cdrag],[data-sdrag]")) e.preventDefault(); });
+document.addEventListener("contextmenu", (e) => { if (e.target.closest && e.target.closest("[data-cdrag],[data-sdrag],[data-trdrag]")) e.preventDefault(); });
 // 拖曳時浮在上方的日期列: 拖到某一天放開 = 移到那天
 const dayDrop = {
   show(t) {
