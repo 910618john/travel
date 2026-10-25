@@ -306,9 +306,9 @@ dialog form{overflow-x:hidden}
 @keyframes bookR{0%{opacity:.08;transform:perspective(1200px) rotateY(-78deg) translateX(18%);transform-origin:left center;filter:brightness(.7);box-shadow:-35px 10px 35px rgba(30,15,22,.32)}55%{opacity:.9;transform:perspective(1200px) rotateY(-13deg) translateX(2%);transform-origin:left center;filter:brightness(.96);box-shadow:-14px 6px 20px rgba(30,15,22,.2)}100%{opacity:1;transform:none;filter:none;box-shadow:none}}
 @keyframes bookL{0%{opacity:.08;transform:perspective(1200px) rotateY(78deg) translateX(-18%);transform-origin:right center;filter:brightness(.7);box-shadow:35px 10px 35px rgba(30,15,22,.32)}55%{opacity:.9;transform:perspective(1200px) rotateY(13deg) translateX(-2%);transform-origin:right center;filter:brightness(.96);box-shadow:14px 6px 20px rgba(30,15,22,.2)}100%{opacity:1;transform:none;filter:none;box-shadow:none}}
 @keyframes bookF{0%{opacity:.15;transform:perspective(1000px) rotateX(12deg) translateY(18px);transform-origin:center top}100%{opacity:1;transform:none}}
-:root:not([data-anim]) #view.anim-r,:root[data-anim="flip"] #view.anim-r,:root[data-anim="flip"] #view.anim-f{animation:bookR .82s cubic-bezier(.16,.76,.2,1)}
-:root:not([data-anim]) #view.anim-l,:root[data-anim="flip"] #view.anim-l{animation:bookL .82s cubic-bezier(.16,.76,.2,1)}
-:root:not([data-anim]) #view.anim-f{animation:bookF .62s cubic-bezier(.16,.76,.2,1)}
+:root:not([data-anim]) #view.anim-r,:root[data-anim="flip"] #view.anim-r,:root[data-anim="flip"] #view.anim-f{animation:bookR .55s cubic-bezier(.16,.76,.2,1)}
+:root:not([data-anim]) #view.anim-l,:root[data-anim="flip"] #view.anim-l{animation:bookL .55s cubic-bezier(.16,.76,.2,1)}
+:root:not([data-anim]) #view.anim-f{animation:bookF .42s cubic-bezier(.16,.76,.2,1)}
 @media(prefers-reduced-motion:reduce){:root:not([data-anim]) #view[class*="anim-"],:root[data-anim="flip"] #view[class*="anim-"]{animation:none}}
 </style>
 <style>
