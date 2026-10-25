@@ -584,7 +584,7 @@ function openForm(kind, item, after, pre) {
   let h = `<h3>${isNew ? "新增" : "編輯"}</h3>${hint ? `<div class="mut">${esc(hint)}</div>` : ""}`;
   for (const [k, lab, type, req, opts] of SCHEMA[kind]) {
     const v = o[k] ?? "";
-    h += type === "check" ? "" : `<label>${lab}</label>`;
+    h += type === "check" ? "" : `<label data-lk="${k}">${lab}</label>`;
     if (type === "select") h += `<select name="${k}">${opts.map((x) => `<option ${x === v ? "selected" : ""}>${x}</option>`).join("")}</select>`;
     else if (type === "cur") h += `<select name="${k}">${[...new Set([t.cur, t.home, ...CURS])].map((x) => `<option ${x === v ? "selected" : ""}>${x}</option>`).join("")}</select>`;
     else if (type === "payer") h += `<select name="${k}">${t.people.map((x) => `<option ${x === v ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>`;
@@ -598,6 +598,17 @@ function openForm(kind, item, after, pre) {
   }
   h += `<div class="row" style="margin-top:14px">${isNew ? "" : '<button value="del" class="del" formnovalidate>刪除</button>'}${!isNew && kind === "itin" && !isMulti(o) ? '<button value="unsched" formnovalidate title="移回待排景點">↩ 移回待排</button>' : ""}<span class="sp"></span><button value="cancel" formnovalidate>取消</button><button value="ok" class="pri">儲存</button></div>`;
   f.innerHTML = h;
+  // 行程: 類型是住宿才顯示入住/退房說明與退房日; 一般景點只顯示日期、開始、結束
+  if (kind === "itin" && f.elements.cat) {
+    const L = { date: ["日期", "入住日"], endDate: ["結束日期（跨天才填）", "退房日"], time: ["開始時間", "入住時間"], end: ["結束時間（沒填算 1 小時）", "退房時間"] };
+    const upd = () => {
+      const lodge = f.elements.cat.value === "住宿";
+      for (const [k, [a, b]] of Object.entries(L)) { const l = f.querySelector(`[data-lk="${k}"]`); if (l) l.textContent = lodge ? b : a; }
+      const ed = f.elements.endDate, show = lodge || (ed && ed.value);
+      if (ed) { ed.style.display = show ? "" : "none"; f.querySelector('[data-lk="endDate"]').style.display = show ? "" : "none"; }
+    };
+    f.elements.cat.addEventListener("change", upd); upd();
+  }
   // 新增時直接跳到最重要的欄位(記帳=金額)
   if (isNew) setTimeout(() => { const el = f.elements[kind === "exp" ? "amt" : (SCHEMA[kind].find((x) => x[3]) || [])[0]]; if (el && !el.value) el.focus(); }, 50);
   const dlg = $("#dlg");
