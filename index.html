@@ -1297,7 +1297,7 @@ function routeSeq(t, d) {
       const s = toMin(i.time); let e = toMin(i.end); if (e == null || e <= s) e = e != null && e < s ? e + 1440 : s + 60;
       r.push({ i, o: i, s, e, dest: true });
     } else if (i.date === d && i.time) {
-      const s = toMin(i.time); r.push({ i, o: { ...i, end: i.time }, s, e: s, dest: true });
+      const s = toMin(i.time), e = s + (+i.inDur || 0); r.push({ i, o: { ...i, end: hm(e) }, s, e, dest: true }); // 入住後在飯店待多久(拖方塊下緣設定)
     } else if (i.endDate === d) {
       const e = toMin(i.end || (icatOf(i) === "住宿" ? "11:00" : "")); if (e == null) continue;
       r.push({ i, o: { ...i, date: d, time: hm(e), end: hm(e) }, s: e, e, dest: false });
@@ -1865,7 +1865,7 @@ function calHtml(t) {
       const s = toMin(i.time); let e = toMin(i.end); if (e == null || e <= s) e = e != null && e < s ? e + 1440 : s + 60;
       evs.push({ i, s, e: Math.min(e, 1440 + 360) });
     } else if (d === i.date) {
-      if (i.time) { const s = toMin(i.time); evs.push({ i, s, e: s + 60, label: lodge ? "入住" : "開始", range: i.time }); } else untimed.push({ ...i, _lbl: lodge ? "入住" : "開始" });
+      if (i.time) { const s = toMin(i.time); evs.push({ i, s, e: s + (+i.inDur || 60), label: lodge ? "入住" : "開始", range: i.time }); } else untimed.push({ ...i, _lbl: lodge ? "入住" : "開始" });
     } else if (d === i.endDate) {
       const e = toMin(i.end || (lodge ? "11:00" : ""));
       if (e != null) evs.push({ i, s: Math.max(0, e - 60), e: Math.max(e, 60), label: lodge ? "退房" : "結束", range: hm(e) }); else untimed.push({ ...i, _lbl: "結束" });
@@ -1916,7 +1916,7 @@ function calHtml(t) {
   for (const v of calLayout(evs)) {
     const top = ((v.s - lo * 60) / 60) * HPX, ht = Math.max(26, ((v.e - v.s) / 60) * HPX - 3), w = 100 / v.cols, i = v.i, warn = hoursWarn(i, t) || (late.has(i.id) ? "⚠️ 交通來不及" : "");
     const m = MODES.find((x) => x[0] === i.mode);
-    h += `<div class="cale c-${icatOf(i)}${warn ? " warn" : ""}" data-edit="itin:${i.id}" data-cdrag="${i.id}"${v.label ? ` data-clbl="${d === i.date ? "in" : "out"}"` : ""} style="top:${top}px;height:${ht}px;left:calc(var(--trw) + (100% - var(--trw)) * ${v.col / v.cols} + 2px);width:calc((100% - var(--trw)) / ${v.cols} - 4px)">${v.label ? "" : '<div class="calrs noprint" data-crs></div>'}
+    h += `<div class="cale c-${icatOf(i)}${warn ? " warn" : ""}" data-edit="itin:${i.id}" data-cdrag="${i.id}"${v.label ? ` data-clbl="${d === i.date ? "in" : "out"}"` : ""} style="top:${top}px;height:${ht}px;left:calc(var(--trw) + (100% - var(--trw)) * ${v.col / v.cols} + 2px);width:calc((100% - var(--trw)) / ${v.cols} - 4px)"><div class="calrs noprint" data-crs></div>
       ${ht < 44 ? '<div class="calone">' : ""}<span class="calt">${v.label ? `${v.label} ${esc(v.range)}` : `${esc(i.time)}${i.end && ht >= 44 ? "–" + esc(i.end) : ""}`}</span>
       <div class="calti">${icatIcon(icatOf(i))} ${esc(i.title)}${warn ? " ⚠️" : ""}${cpTag(i.title + " " + (i.place || ""), true)}</div>${ht < 44 ? "</div>" : ""}
       ${warn && ht >= 90 ? `<div class="calw">${warn}</div>` : ""}</div>`;
@@ -2026,10 +2026,11 @@ document.addEventListener("pointerdown", (e) => {
     }
     if (st.toUns) return unschedule(t, it);
     if (st.lbl) { // 住宿等跨天: 拖入住 = 改入住時間, 拖退房 = 改退房時間(方塊底部)
-      const old = [it.time, it.end];
+      const old = [it.time, it.end, it.inDur];
+      if (st.resize && st.lbl === "in") { it.inDur = Math.max(15, st.e - st.s); save(); render(); return toast(`入住後在飯店 ${it.inDur} 分（到 ${hm(st.e)}）`, "復原", () => { [it.time, it.end, it.inDur] = old; save(); render(); }); }
       if (st.lbl === "in") it.time = hm(st.s); else it.end = hm(st.e);
       save(); render();
-      return toast(`${st.lbl === "in" ? "入住" : "退房"}改成 ${st.lbl === "in" ? it.time : it.end}`, "復原", () => { [it.time, it.end] = old; save(); render(); });
+      return toast(`${st.lbl === "in" ? "入住" : "退房"}改成 ${st.lbl === "in" ? it.time : it.end}`, "復原", () => { [it.time, it.end, it.inDur] = old; save(); render(); });
     }
     const hadEnd = !!it.end;
     it.time = hm(st.s);
