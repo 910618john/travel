@@ -219,6 +219,7 @@ dialog form{overflow-x:hidden}
 .cptag{background:color-mix(in srgb,var(--warn) 25%,transparent);color:var(--fg);cursor:pointer;font-weight:600}
 .badge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--red);color:#fff;font-size:calc(11px*var(--fz,1));line-height:18px;text-align:center}
 .cal{--trw:0px}
+.caltr .calrs{z-index:3;height:7px}.caltr .calrs.top{top:-2px}.caltr .calrs:not(.top){bottom:-2px}
 .calrs.top{top:0;bottom:auto}.calrs.top::after{bottom:auto;top:3px}
 .calrs{position:absolute;left:0;right:0;bottom:0;height:9px;cursor:ns-resize}
 .calrs::after{content:"";position:absolute;left:50%;bottom:3px;width:24px;height:3px;margin-left:-12px;border-radius:2px;background:var(--cc,var(--acc));opacity:.7}
