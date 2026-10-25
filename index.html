@@ -303,17 +303,26 @@ dialog form{overflow-x:hidden}
 :root[data-style="wa"][data-country] body[data-tab="pack"] main::before{content:"📝 打包清單";--page-art:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 230 140'%3E%3Crect x='33' y='36' width='75' height='94' rx='15' fill='%23da6c82' stroke='%238f3f55' stroke-width='5'/%3E%3Cpath d='M50 36v-17h40v17M43 64h56' fill='none' stroke='%238f3f55' stroke-width='6'/%3E%3Ccircle cx='51' cy='130' r='7' fill='%23543a45'/%3E%3Ccircle cx='90' cy='130' r='7' fill='%23543a45'/%3E%3Ccircle cx='165' cy='72' r='38' fill='%23ffe0c6' stroke='%239b665b' stroke-width='4'/%3E%3Cpath d='M130 68q8-48 45-40 31 9 26 48-21-20-38-23-12 12-33 15z' fill='%23543a45'/%3E%3Cellipse cx='151' cy='74' rx='6' ry='8' fill='%233a2a2e'/%3E%3Cellipse cx='178' cy='74' rx='6' ry='8' fill='%233a2a2e'/%3E%3Cpath d='M155 94q10 8 19 0' fill='none' stroke='%239b4f5d' stroke-width='3'/%3E%3Cpath d='M124 125q41-28 82 0' fill='%237fc2c7'/%3E%3Cpath d='M197 38l11-13 12 13-12 13z' fill='%23ffe175'/%3E%3C/svg%3E")}
 @media(max-width:520px){:root[data-style="wa"][data-country] body:not([data-tab="home"]) main::before{height:116px;padding:0 14px;font-size:calc(19px*var(--fz,1));background-position:right -12px bottom,center;background-size:auto 94%,100% 100%}}
 /* 慢速立體翻書：右頁由右軸翻入，左頁由左軸翻入 */
-@keyframes bookR{0%{opacity:.08;transform:perspective(1200px) rotateY(-78deg) translateX(18%);transform-origin:left center;filter:brightness(.7);box-shadow:-35px 10px 35px rgba(30,15,22,.32)}55%{opacity:.9;transform:perspective(1200px) rotateY(-13deg) translateX(2%);transform-origin:left center;filter:brightness(.96);box-shadow:-14px 6px 20px rgba(30,15,22,.2)}100%{opacity:1;transform:none;filter:none;box-shadow:none}}
-@keyframes bookL{0%{opacity:.08;transform:perspective(1200px) rotateY(78deg) translateX(-18%);transform-origin:right center;filter:brightness(.7);box-shadow:35px 10px 35px rgba(30,15,22,.32)}55%{opacity:.9;transform:perspective(1200px) rotateY(13deg) translateX(-2%);transform-origin:right center;filter:brightness(.96);box-shadow:14px 6px 20px rgba(30,15,22,.2)}100%{opacity:1;transform:none;filter:none;box-shadow:none}}
-@keyframes bookF{0%{opacity:.15;transform:perspective(1000px) rotateX(12deg) translateY(18px);transform-origin:center top}100%{opacity:1;transform:none}}
-:root:not([data-anim]) #view.anim-r,:root[data-anim="flip"] #view.anim-r,:root[data-anim="flip"] #view.anim-f{animation:bookR .55s cubic-bezier(.16,.76,.2,1)}
-:root:not([data-anim]) #view.anim-l,:root[data-anim="flip"] #view.anim-l{animation:bookL .55s cubic-bezier(.16,.76,.2,1)}
-:root:not([data-anim]) #view.anim-f{animation:bookF .42s cubic-bezier(.16,.76,.2,1)}
+/* 立體翻書(順暢版)：只動 transform 與 opacity，交給 GPU 合成；轉軸在左/右邊 */
+@keyframes bookR{0%{opacity:0;transform:perspective(1400px) rotateY(-32deg) translate3d(6%,0,0)}60%{opacity:1}100%{opacity:1;transform:perspective(1400px) rotateY(0) translate3d(0,0,0)}}
+@keyframes bookL{0%{opacity:0;transform:perspective(1400px) rotateY(32deg) translate3d(-6%,0,0)}60%{opacity:1}100%{opacity:1;transform:perspective(1400px) rotateY(0) translate3d(0,0,0)}}
+@keyframes bookF{0%{opacity:0;transform:translate3d(0,10px,0)}100%{opacity:1;transform:translate3d(0,0,0)}}
+#view.anim-r{transform-origin:left center}#view.anim-l{transform-origin:right center}
+#view[class*="anim-"]{will-change:transform,opacity;backface-visibility:hidden}
+:root:not([data-anim]) #view.anim-r,:root[data-anim="flip"] #view.anim-r,:root[data-anim="flip"] #view.anim-f{animation:bookR .55s cubic-bezier(.22,.61,.36,1) both}
+:root:not([data-anim]) #view.anim-l,:root[data-anim="flip"] #view.anim-l{animation:bookL .55s cubic-bezier(.22,.61,.36,1) both}
+:root:not([data-anim]) #view.anim-f{animation:bookF .42s cubic-bezier(.22,.61,.36,1) both}
+/* 防止動畫時畫面變寬而左右抖動 */
+html,body{overflow-x:clip}
+@supports not (overflow-x:clip){html,body{overflow-x:hidden}}
+/* 卡片毛玻璃很耗效能(翻頁時每張卡都要重算模糊)：改用幾乎不透明的底色 */
+:root[data-style="wa"] .card,:root[data-style="wa"] #view>.empty{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+:root[data-style="wa"] .card{background:color-mix(in srgb,var(--card) 95%,transparent)}
 @media(prefers-reduced-motion:reduce){:root:not([data-anim]) #view[class*="anim-"],:root[data-anim="flip"] #view[class*="anim-"]{animation:none}}
 </style>
 <style>
 /* 日本 Q 版實景預覽：完整場景做底，小角色不再壓住操作區 */
-:root[data-style="wa"][data-country="jp"] body::before{inset:58px 0 66px;background:linear-gradient(rgba(255,247,248,.18),rgba(255,247,248,.3)),url("assets/japan-q-bg-no-people-v3.png") no-repeat center center/cover;opacity:.72;filter:saturate(.82) brightness(.9)}
+:root[data-style="wa"][data-country="jp"] body::before{inset:58px 0 66px;background:linear-gradient(rgba(255,247,248,.18),rgba(255,247,248,.3)),url("assets/family-japan-travel-bg-v4.webp") no-repeat center center/cover;opacity:.72;filter:saturate(.82) brightness(.9)}
 :root[data-style="wa"][data-country="jp"] body::after{display:none}
 :root[data-style="wa"] .card{background:rgba(255,250,250,.94);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
 :root[data-style="wa"] #view>.empty{background:rgba(255,250,250,.92)}
@@ -332,29 +341,31 @@ dialog form{overflow-x:hidden}
 </style>
 <style>
 /* 完整圖片版：背景保留兩人三寵物，分頁橫幅不再拼接 SVG 元件 */
-:root[data-style="wa"][data-country="jp"] body::before{background-image:linear-gradient(rgba(255,247,248,.12),rgba(255,247,248,.24)),url("assets/family-japan-travel-bg-v4.png");background-position:center,center 43%;background-size:100% 100%,cover;opacity:.78;filter:saturate(.9) brightness(.92)}
+:root[data-style="wa"][data-country="jp"] body::before{background-image:linear-gradient(rgba(255,247,248,.12),rgba(255,247,248,.24)),url("assets/family-japan-travel-bg-v4.webp");background-position:center,center 43%;background-size:100% 100%,cover;opacity:.78;filter:saturate(.9) brightness(.92)}
 :root[data-style="wa"][data-country] body:not([data-tab="home"]) main::before{height:156px;background-image:linear-gradient(90deg,rgba(45,35,46,.82) 0%,rgba(45,35,46,.54) 38%,rgba(45,35,46,.06) 72%),var(--page-art);background-repeat:no-repeat,no-repeat;background-position:center,center;background-size:100% 100%,cover;text-shadow:0 2px 10px rgba(26,16,23,.58)}
-:root[data-style="wa"][data-country] body[data-tab="itin"] main::before{--page-art:url("assets/page-itinerary-v1.png")}
-:root[data-style="wa"][data-country] body[data-tab="books"] main::before{--page-art:url("assets/page-bookings-v1.png")}
-:root[data-style="wa"][data-country] body[data-tab="tickets"] main::before{--page-art:url("assets/page-tickets-v1.png")}
-:root[data-style="wa"][data-country] body[data-tab="exp"] main::before{--page-art:url("assets/page-expenses-v1.png")}
-:root[data-style="wa"][data-country] body[data-tab="fx"] main::before{--page-art:url("assets/page-tools-v1.png")}
-:root[data-style="wa"][data-country] body[data-tab="pack"] main::before{--page-art:url("assets/page-packing-v1.png")}
+:root[data-style="wa"][data-country] body[data-tab="itin"] main::before{--page-art:url("assets/page-itinerary-v1.webp")}
+:root[data-style="wa"][data-country] body[data-tab="books"] main::before{--page-art:url("assets/page-bookings-v1.webp")}
+:root[data-style="wa"][data-country] body[data-tab="tickets"] main::before{--page-art:url("assets/page-tickets-v1.webp")}
+:root[data-style="wa"][data-country] body[data-tab="exp"] main::before{--page-art:url("assets/page-expenses-v1.webp")}
+:root[data-style="wa"][data-country] body[data-tab="fx"] main::before{--page-art:url("assets/page-tools-v1.webp")}
+:root[data-style="wa"][data-country] body[data-tab="pack"] main::before{--page-art:url("assets/page-packing-v1.webp")}
 :root[data-theme="dark"][data-style="wa"][data-country="jp"] body::before{opacity:.64;filter:saturate(.8) brightness(.5)}
 @media(prefers-color-scheme:dark){:root[data-style="wa"][data-country="jp"]:not([data-theme="light"]) body::before{opacity:.64;filter:saturate(.8) brightness(.5)}}
 @media(max-width:520px){:root[data-style="wa"][data-country="jp"] body::before{background-position:center,53% center}:root[data-style="wa"][data-country] body:not([data-tab="home"]) main::before{height:132px;background-position:center,center;background-size:100% 100%,cover}}
 </style>
 <style>
 /* 每個分頁使用不同的完整場景背景 */
-:root[data-style="wa"][data-country="jp"] body[data-tab="home"]::before{background-image:linear-gradient(rgba(255,247,248,.12),rgba(255,247,248,.24)),url("assets/family-japan-travel-bg-v4.png")}
-:root[data-style="wa"][data-country="jp"] body[data-tab="itin"]::before{background-image:linear-gradient(rgba(255,247,248,.18),rgba(255,247,248,.3)),url("assets/page-itinerary-v1.png")}
-:root[data-style="wa"][data-country="jp"] body[data-tab="books"]::before{background-image:linear-gradient(rgba(255,247,248,.18),rgba(255,247,248,.3)),url("assets/page-bookings-v1.png")}
-:root[data-style="wa"][data-country="jp"] body[data-tab="tickets"]::before{background-image:linear-gradient(rgba(255,247,248,.18),rgba(255,247,248,.3)),url("assets/page-tickets-v1.png")}
-:root[data-style="wa"][data-country="jp"] body[data-tab="exp"]::before{background-image:linear-gradient(rgba(255,247,248,.18),rgba(255,247,248,.3)),url("assets/page-expenses-v1.png")}
-:root[data-style="wa"][data-country="jp"] body[data-tab="fx"]::before{background-image:linear-gradient(rgba(255,247,248,.18),rgba(255,247,248,.3)),url("assets/page-tools-v1.png")}
-:root[data-style="wa"][data-country="jp"] body[data-tab="pack"]::before{background-image:linear-gradient(rgba(255,247,248,.18),rgba(255,247,248,.3)),url("assets/page-packing-v1.png")}
+:root[data-style="wa"][data-country="jp"] body[data-tab="home"]::before{background-image:linear-gradient(rgba(255,247,248,.12),rgba(255,247,248,.24)),url("assets/family-japan-travel-bg-v4.webp")}
+:root[data-style="wa"][data-country="jp"] body[data-tab="itin"]::before{background-image:linear-gradient(rgba(255,247,248,.18),rgba(255,247,248,.3)),url("assets/page-itinerary-v1.webp")}
+:root[data-style="wa"][data-country="jp"] body[data-tab="books"]::before{background-image:linear-gradient(rgba(255,247,248,.18),rgba(255,247,248,.3)),url("assets/page-bookings-v1.webp")}
+:root[data-style="wa"][data-country="jp"] body[data-tab="tickets"]::before{background-image:linear-gradient(rgba(255,247,248,.18),rgba(255,247,248,.3)),url("assets/page-tickets-v1.webp")}
+:root[data-style="wa"][data-country="jp"] body[data-tab="exp"]::before{background-image:linear-gradient(rgba(255,247,248,.18),rgba(255,247,248,.3)),url("assets/page-expenses-v1.webp")}
+:root[data-style="wa"][data-country="jp"] body[data-tab="fx"]::before{background-image:linear-gradient(rgba(255,247,248,.18),rgba(255,247,248,.3)),url("assets/page-tools-v1.webp")}
+:root[data-style="wa"][data-country="jp"] body[data-tab="pack"]::before{background-image:linear-gradient(rgba(255,247,248,.18),rgba(255,247,248,.3)),url("assets/page-packing-v1.webp")}
 :root[data-style="wa"][data-country="jp"] body:not([data-tab="home"])::before{background-position:center,center;background-size:100% 100%,cover}
 @media(max-width:520px){:root[data-style="wa"][data-country="jp"] body:not([data-tab="home"])::before{background-position:center,center}}
+:root[data-style="wa"] .card.hero{background-color:var(--hd)!important;background-image:var(--seigaiha)!important;background-size:56px 28px!important;color:var(--hdfg)}
+:root[data-style="wa"][data-city="fuk"] .card.hero{background-size:40px 40px!important}
 </style>
 </head>
 <body>
@@ -2646,7 +2657,7 @@ function scanHtml(t) {
 }
 
 // ===== 畫面 =====
-const TABS = [["home", "assets/nav-home-v1.png", "總覽"], ["itin", "assets/nav-itinerary-v1.png", "行程"], ["books", "assets/nav-bookings-v1.png", "訂位"], ["tickets", "assets/nav-tickets-v1.png", "票券"], ["exp", "assets/nav-expenses-v1.png", "花費"], ["fx", "assets/nav-tools-v1.png", "工具"], ["pack", "assets/nav-packing-v1.png", "清單"]];
+const TABS = [["home", "assets/nav-home-v1.webp", "總覽"], ["itin", "assets/nav-itinerary-v1.webp", "行程"], ["books", "assets/nav-bookings-v1.webp", "訂位"], ["tickets", "assets/nav-tickets-v1.webp", "票券"], ["exp", "assets/nav-expenses-v1.webp", "花費"], ["fx", "assets/nav-tools-v1.webp", "工具"], ["pack", "assets/nav-packing-v1.webp", "清單"]];
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
 const dayName = (d) => d ? ["日", "一", "二", "三", "四", "五", "六"][new Date(d + "T00:00").getDay()] : "";
 const dt = (s) => s ? s.replace("T", " ") : "";
@@ -3206,6 +3217,9 @@ function animView(cls) {
     document.body.appendChild(d); setTimeout(() => d.remove(), 2000);
   }
 }
+// 背景大圖先在閒置時解碼好, 換分頁時不會邊翻頁邊解碼而卡頓
+(window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => ["family-japan-travel-bg-v4", "page-itinerary-v1", "page-bookings-v1", "page-tickets-v1", "page-expenses-v1", "page-tools-v1", "page-packing-v1"]
+  .forEach((n) => { const im = new Image(); im.src = `assets/${n}.webp`; im.decode && im.decode().catch(() => {}); (window.__bgKeep ||= []).push(im); }));
 function goTab(tab, fromHistory) {
   if (!fromHistory && tab !== S.tab) history.pushState({ tab }, "");
   const ix = (k) => TABS.findIndex((x) => x[0] === k), dir = tab === S.tab ? "anim-f" : ix(tab) > ix(S.tab) ? "anim-r" : "anim-l";
