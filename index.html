@@ -222,6 +222,7 @@ dialog form{overflow-x:hidden}
 .cal.trlane .caltr{left:3px;width:calc(var(--trw) - 8px);flex-direction:column;justify-content:center;text-align:center;white-space:normal;line-height:1.25;padding:2px 3px;font-size:calc(10.5px*var(--fz,1))}
 .cal.trlane .caltr{background-color:color-mix(in srgb,var(--card) 92%,transparent);color:var(--fg);font-weight:600}.cal.trlane .caltr.late{color:var(--red)}
 .cal.trlane .caltr .trl{display:block;overflow:hidden;word-break:break-all;max-height:100%}
+.calrs.top{top:0;bottom:auto}.calrs.top::after{bottom:auto;top:3px}
 .calrs{position:absolute;left:0;right:0;bottom:0;height:9px;cursor:ns-resize}
 .calrs::after{content:"";position:absolute;left:50%;bottom:3px;width:24px;height:3px;margin-left:-12px;border-radius:2px;background:var(--cc,var(--acc));opacity:.7}
 .cale{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
@@ -1878,7 +1879,7 @@ function calHtml(t) {
     if (bad) late.add(b.i.id);
     const icon = (MODES.find((x) => x[0] === b.i.mode) || ["🚃"])[0].split(" ")[0];
     const brief = b.i.how || (tv.steps && tv.steps.length ? stepsBrief(tv.steps) : tv.st ? `${tv.st[0]}→${tv.st[1]}` : "");
-    h += `<div class="caltr${bad ? " late" : ""}" data-act="route" data-k="${k}" data-trdrag="${k}" data-trs="${st0}" data-trm="${tv.m}" title="${tv.g ? "Google 路線" : tv.st ? "依最近車站估算" : tv.est ? "依距離估算" : "自己填的"}・點開看怎麼去" style="top:${((Math.max(st0, lo * 60) - lo * 60) / 60) * HPX}px;height:${Math.max(14, (tv.m / 60) * HPX - 2)}px">${brief ? "" : icon + " "}${tv.est ? "約" : ""}<span class="trl">${tv.m}分${bad ? " 來不及" : ""}${brief ? " " + esc(brief) : ""}</span><div class="calrs noprint" data-trrs></div></div>`;
+    h += `<div class="caltr${bad ? " late" : ""}" data-act="route" data-k="${k}" data-trdrag="${k}" data-trs="${st0}" data-trm="${tv.m}" title="${tv.g ? "Google 路線" : tv.st ? "依最近車站估算" : tv.est ? "依距離估算" : "自己填的"}・點開看怎麼去" style="top:${((Math.max(st0, lo * 60) - lo * 60) / 60) * HPX}px;height:${Math.max(14, (tv.m / 60) * HPX - 2)}px">${brief ? "" : icon + " "}${tv.est ? "約" : ""}<div class="calrs top noprint" data-trrs="top"></div><span class="trl">${tv.m}分${bad ? " 來不及" : ""}${brief ? " " + esc(brief) : ""}</span><div class="calrs noprint" data-trrs></div></div>`;
   }
   for (const v of calLayout(evs)) {
     const top = ((v.s - lo * 60) / 60) * HPX, ht = Math.max(26, ((v.e - v.s) / 60) * HPX - 3), w = 100 / v.cols, i = v.i, warn = hoursWarn(i, t) || (late.has(i.id) ? "⚠️ 交通來不及" : "");
@@ -1901,7 +1902,8 @@ document.addEventListener("pointerdown", (e) => {
   const el = e.target.closest && e.target.closest("[data-trdrag]"); if (!el || e.button > 0) return;
   const cal = el.closest(".cal"), lo = +cal.dataset.lo, k = +el.dataset.trdrag, t = T(), seq = routeSeq(t, filt.cd), nx = seq[k];
   if (!nx || !nx.dest) return;
-  const st = { resize: !!e.target.closest("[data-trrs]"), y0: e.clientY, top0: parseFloat(el.style.top), h0: parseFloat(el.style.height) + 2, s0: +el.dataset.trs, m0: +el.dataset.trm, pid: e.pointerId, active: false };
+  const rh = e.target.closest("[data-trrs]");
+  const st = { resize: rh ? (rh.dataset.trrs === "top" ? "top" : "bot") : null, y0: e.clientY, top0: parseFloat(el.style.top), h0: parseFloat(el.style.height) + 2, s0: +el.dataset.trs, m0: +el.dataset.trm, pid: e.pointerId, active: false };
   const lbl = el.querySelector(".trl"), txt0 = lbl.textContent;
   const activate = () => { st.active = calDrag.on = true; el.classList.add("caldrag"); el.style.zIndex = 3; navigator.vibrate && navigator.vibrate(15); };
   if (e.pointerType === "mouse") st.armed = true; else st.timer = setTimeout(() => { st.armed = true; activate(); }, 350);
@@ -1909,9 +1911,14 @@ document.addEventListener("pointerdown", (e) => {
     if (ev.pointerId !== st.pid) return;
     const dy = ev.clientY - st.y0;
     if (!st.active) { if (st.armed && Math.abs(dy) > 4) activate(); else if (!st.armed && Math.abs(dy) > 8) return end(); if (!st.active) return; }
-    if (st.resize) {
-      st.m = Math.max(5, Math.round((((st.h0 + dy) / HPX) * 60) / 5) * 5);
-      el.style.height = Math.max(14, (st.m / 60) * HPX - 2) + "px"; lbl.textContent = `交通 ${st.m} 分`;
+    if (st.resize === "top") { // 拖上緣: 抵達時間不變, 早一點/晚一點出發
+      const arr = st.s0 + st.m0, ns = Math.min(arr - 5, Math.round((st.s0 + (dy / HPX) * 60) / 5) * 5);
+      st.m = arr - ns; el.style.top = ((ns - lo * 60) / 60) * HPX + "px"; el.style.height = Math.max(14, (st.m / 60) * HPX - 2) + "px";
+      lbl.textContent = `${hm(ns)} 出發・${st.m} 分`;
+    } else if (st.resize) { // 拖下緣: 出發時間不變, 抵達(下一個行程)跟著變
+      const arr = Math.max(st.s0 + 5, Math.round((st.s0 + st.m0 + (dy / HPX) * 60) / 15) * 15);
+      st.m = arr - st.s0; st.arr = arr; el.style.height = Math.max(14, (st.m / 60) * HPX - 2) + "px";
+      lbl.textContent = `${st.m} 分・${hm(arr)} 到`;
     } else {
       st.s = Math.round((st.s0 + (dy / HPX) * 60) / 15) * 15; // 出發時間 15 分一格
       el.style.top = ((st.s - lo * 60) / 60) * HPX + "px"; lbl.textContent = `${hm(st.s)} 出發 → ${hm(st.s + st.m0)} 到`;
@@ -1925,7 +1932,13 @@ document.addEventListener("pointerdown", (e) => {
     const was = st.active; end(); if (!was) return;
     calDrag.until = Date.now() + 120;
     const b = nx.i, old = [b.time, b.end, b.travel];
-    if (st.resize) { if (st.m == null) return render(); b.travel = st.m; }
+    if (st.resize === "top") { if (st.m == null) return render(); b.travel = st.m; }
+    else if (st.resize) {
+      if (st.m == null) return render();
+      const s0 = toMin(b.time), dur = !isMulti(b) && b.end && toMin(b.end) > s0 ? toMin(b.end) - s0 : null;
+      b.travel = st.m; b.time = hm(((st.arr % 1440) + 1440) % 1440); if (dur != null) b.end = hm(Math.min(st.arr + dur, 1439));
+      if (!isMulti(b)) placeByTime(t, b);
+    }
     else {
       if (st.s == null) return render();
       const ns = st.s + st.m0, s0 = toMin(b.time), dur = !isMulti(b) && b.end && toMin(b.end) > s0 ? toMin(b.end) - s0 : null;
@@ -1934,7 +1947,7 @@ document.addEventListener("pointerdown", (e) => {
       if (!isMulti(b)) placeByTime(t, b);
     }
     save(); render();
-    toast(st.resize ? `交通改成 ${b.travel} 分` : `「${b.title}」改成 ${b.time} 開始`, "復原", () => { [b.time, b.end, b.travel] = old; if (!isMulti(b)) placeByTime(t, b); save(); render(); });
+    toast(st.resize === "top" ? `交通改成 ${b.travel} 分（早點出發）` : st.resize ? `交通 ${b.travel} 分，「${b.title}」改成 ${b.time} 開始` : `「${b.title}」改成 ${b.time} 開始`, "復原", () => { [b.time, b.end, b.travel] = old; if (!isMulti(b)) placeByTime(t, b); save(); render(); });
   };
   addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", end);
 });
