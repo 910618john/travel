@@ -76,6 +76,7 @@ a{color:var(--acc)}
 /* iPhone Safari: 一般 div/tr 要有 cursor:pointer, 點擊才會傳到 document 的事件處理 */
 [data-edit],[data-act],[data-tab],[data-f],[data-big],[data-say],[data-hit],[data-drag],[data-tip],[data-rmph],[data-d]{cursor:pointer;-webkit-tap-highlight-color:rgba(0,0,0,.06)}
 main{padding-bottom:84px}
+html{scrollbar-gutter:stable}
 @keyframes inR{from{opacity:0;transform:translateX(28px)}to{opacity:1;transform:none}}
 @keyframes inL{from{opacity:0;transform:translateX(-28px)}to{opacity:1;transform:none}}
 @keyframes inF{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
@@ -379,7 +380,7 @@ html,body{overflow-x:clip}
 <button class="fab pri" id="fab">＋</button>
 <nav id="nav"></nav>
 <div id="toast"><span></span><button type="button"></button></div>
-<dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
+<dialog id="dlg"><form method="dialog" id="dlgForm" autocomplete="off"></form></dialog>
 
 <script>
 "use strict";
@@ -3030,6 +3031,10 @@ function settle(t) {
 }
 
 function render() {
+  // 編輯視窗開著時, 背景資料(匯率、定位、天氣…)更新不重畫底下的頁面, 避免版面變動讓視窗跳動; 關掉後再補畫
+  const dlg = document.getElementById("dlg");
+  if (dlg && dlg.open) { render.pending = true; return; }
+  render.pending = false;
   const t = T();
   $("#tripSel").innerHTML = S.trips.map((x) => `<option value="${x.id}" ${x.id === t.id ? "selected" : ""}>${esc(x.name)}</option>`).join("") + `<option value="__new">＋ 新增旅程</option>`;
   if (!V[S.tab]) S.tab = "home";
@@ -3494,6 +3499,7 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
   navigator.serviceWorker.addEventListener("message", (e) => { if (e.data && e.data.type === "updated") toast("有新版本", "更新", () => location.reload()); });
 }
+document.getElementById("dlg").addEventListener("close", () => setTimeout(() => { if (render.pending && !document.getElementById("dlg").open) render(); }, 0));
 </script>
 </body>
 </html>
