@@ -74,6 +74,13 @@ a{color:var(--acc)}
 /* iPhone Safari: 一般 div/tr 要有 cursor:pointer, 點擊才會傳到 document 的事件處理 */
 [data-edit],[data-act],[data-tab],[data-f],[data-big],[data-say],[data-hit],[data-drag],[data-tip],[data-rmph],[data-d]{cursor:pointer;-webkit-tap-highlight-color:rgba(0,0,0,.06)}
 main{padding-bottom:84px}
+@keyframes inR{from{opacity:0;transform:translateX(28px)}to{opacity:1;transform:none}}
+@keyframes inL{from{opacity:0;transform:translateX(-28px)}to{opacity:1;transform:none}}
+@keyframes inF{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes pop{0%{transform:scale(.6)}60%{transform:scale(1.15)}100%{transform:scale(1)}}
+#view.anim-r{animation:inR .28s cubic-bezier(.2,.8,.2,1)}#view.anim-l{animation:inL .28s cubic-bezier(.2,.8,.2,1)}#view.anim-f{animation:inF .22s ease-out}
+nav button.on b{animation:pop .3s ease-out}
+@media (prefers-reduced-motion:reduce){#view[class*="anim-"],nav button.on b{animation:none}}
 .tsel{display:flex;align-items:center;gap:4px;flex:1;min-width:0;max-width:260px}.tsel select{flex:1;min-width:0;padding:8px 4px;text-align:center}.tsel b{font-weight:700;color:var(--mut)}
 /* ===== 和風(data-style="wa"): 和紙底、藍染頁首青海波、朱色點綴、明朝體標題 ===== */
 :root[data-style="wa"]{--bg:#fbf2f0;--card:#fffafa;--fg:#3a2a2e;--mut:#8a7177;--line:#f1dde1;--acc:#c2546d;--acc2:#fbe4ea;--red:#c0392b;--warn:#b7791f;--shu:#e48aa0;--hd:#d97f95;--hdfg:#ffffff;--seigaiha:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='28' viewBox='0 0 56 28'%3E%3Ccircle cx='28' cy='0' r='28' fill='%23d97f95'/%3E%3Ccircle cx='28' cy='0' r='27.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='28' cy='0' r='21.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='28' cy='0' r='14.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='28' cy='0' r='7.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='0' cy='14' r='28' fill='%23d97f95'/%3E%3Ccircle cx='0' cy='14' r='27.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='0' cy='14' r='21.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='0' cy='14' r='14.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='0' cy='14' r='7.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='56' cy='14' r='28' fill='%23d97f95'/%3E%3Ccircle cx='56' cy='14' r='27.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='56' cy='14' r='21.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='56' cy='14' r='14.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='56' cy='14' r='7.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='28' cy='28' r='28' fill='%23d97f95'/%3E%3Ccircle cx='28' cy='28' r='27.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='28' cy='28' r='21.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='28' cy='28' r='14.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='28' cy='28' r='7.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='0' cy='42' r='28' fill='%23d97f95'/%3E%3Ccircle cx='0' cy='42' r='27.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='0' cy='42' r='21.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='0' cy='42' r='14.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='0' cy='42' r='7.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='56' cy='42' r='28' fill='%23d97f95'/%3E%3Ccircle cx='56' cy='42' r='27.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='56' cy='42' r='21.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='56' cy='42' r='14.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3Ccircle cx='56' cy='42' r='7.0' fill='none' stroke='%23ffffff' stroke-opacity='.28' stroke-width='1'/%3E%3C/svg%3E");--sakura:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath transform='rotate%280 50 50%29' d='M50 50 C38 38 36 18 46 8 L50 14 L54 8 C64 18 62 38 50 50Z' fill='%23ffffff' fill-opacity='.85'/%3E%3Cpath transform='rotate%2872 50 50%29' d='M50 50 C38 38 36 18 46 8 L50 14 L54 8 C64 18 62 38 50 50Z' fill='%23ffffff' fill-opacity='.85'/%3E%3Cpath transform='rotate%28144 50 50%29' d='M50 50 C38 38 36 18 46 8 L50 14 L54 8 C64 18 62 38 50 50Z' fill='%23ffffff' fill-opacity='.85'/%3E%3Cpath transform='rotate%28216 50 50%29' d='M50 50 C38 38 36 18 46 8 L50 14 L54 8 C64 18 62 38 50 50Z' fill='%23ffffff' fill-opacity='.85'/%3E%3Cpath transform='rotate%28288 50 50%29' d='M50 50 C38 38 36 18 46 8 L50 14 L54 8 C64 18 62 38 50 50Z' fill='%23ffffff' fill-opacity='.85'/%3E%3Ccircle cx='50' cy='50' r='5' fill='%23ffffff' fill-opacity='1'/%3E%3C/svg%3E");--paper:.07;--serif:"Noto Serif TC","Noto Serif JP","Hiragino Mincho ProN","PMingLiU",serif}
@@ -2941,9 +2948,13 @@ document.addEventListener("click", async (e) => {
   const t = T();
   if (el.dataset.tab) { goTab(el.dataset.tab); return; }
   if (el.dataset.f) {
-    filt[el.dataset.f] = el.dataset.v;
-    if (UI_KEYS.includes(el.dataset.f)) { S.ui = { ...(S.ui || {}), [el.dataset.f]: el.dataset.v }; saveLocal(); }
-    render(); return;
+    const f = el.dataset.f, old = filt[f], same = old === el.dataset.v;
+    filt[f] = el.dataset.v;
+    if (UI_KEYS.includes(f)) { S.ui = { ...(S.ui || {}), [f]: el.dataset.v }; saveLocal(); }
+    render();
+    if (!same && ["iv", "tool", "pk", "tk", "ex"].includes(f)) animView("anim-f");
+    else if (!same && f === "cd") animView((el.dataset.v || "") > (old || "") ? "anim-r" : "anim-l");
+    return;
   }
   const id = el.dataset.id, act = el.dataset.act;
   if (act) {
@@ -2961,7 +2972,7 @@ document.addEventListener("click", async (e) => {
     else if (act === "fxreload") return loadRates(true);
     else if (act === "geoall") return geoAll(t);
     else if (act === "premap") return preMap(t);
-    else if (act === "calprev" || act === "calnext") { const ds = calDays(t), k = ds.indexOf(filt.cd) + (act === "calnext" ? 1 : -1); if (ds[k]) filt.cd = ds[k]; calScroll.done = null; return render(); }
+    else if (act === "calprev" || act === "calnext") { const ds = calDays(t), k = ds.indexOf(filt.cd) + (act === "calnext" ? 1 : -1); if (ds[k]) filt.cd = ds[k]; calScroll.done = null; render(); return ds[k] && animView(act === "calnext" ? "anim-r" : "anim-l"); }
     else if (act === "route") { const sq = routeSeq(t, filt.cd), k = +el.dataset.k; return sq[k] && showRoute(sq[k - 1].o, sq[k].i); }
     else if (act === "shelter") { filt.tool = "附近"; goTab("fx"); return findNear(t, "避難所"); }
     else if (act === "notifyok") { if (!("Notification" in window)) return alert("這個瀏覽器不支援通知（iPhone 要先「加入主畫面」再從主畫面開啟）"); return Notification.requestPermission().then((p) => { toast(p === "granted" ? "已開啟通知" : "沒有允許通知"); render(); }); }
@@ -3070,9 +3081,15 @@ document.addEventListener("pointerdown", (e) => {
   };
   addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", up);
 });
+// 切換動畫: 往右邊的分頁從右滑入, 往左從左滑入; 子分頁(行事曆/清單…)淡入
+function animView(cls) {
+  const v = $("#view"); if (!v || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  v.classList.remove("anim-l", "anim-r", "anim-f"); void v.offsetWidth; v.classList.add(cls);
+}
 function goTab(tab, fromHistory) {
   if (!fromHistory && tab !== S.tab) history.pushState({ tab }, "");
-  S.tab = tab; saveLocal(); render(); scrollTo(0, 0);
+  const ix = (k) => TABS.findIndex((x) => x[0] === k), dir = tab === S.tab ? "anim-f" : ix(tab) > ix(S.tab) ? "anim-r" : "anim-l";
+  S.tab = tab; saveLocal(); render(); scrollTo(0, 0); animView(dir);
   // 旅途中打開行程, 直接捲到今天
   if (tab === "itin" && filt.iv === "清單") { const d = document.querySelector(`[data-day="${today()}"]`); if (d) d.scrollIntoView({ block: "start" }); }
 }
