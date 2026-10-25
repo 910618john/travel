@@ -79,6 +79,21 @@ main{padding-bottom:84px}
 @keyframes inF{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @keyframes pop{0%{transform:scale(.6)}60%{transform:scale(1.15)}100%{transform:scale(1)}}
 #view.anim-r{animation:inR .28s cubic-bezier(.2,.8,.2,1)}#view.anim-l{animation:inL .28s cubic-bezier(.2,.8,.2,1)}#view.anim-f{animation:inF .22s ease-out}
+/* 其他切換動畫(⚙︎ 設定選) */
+@keyframes aFade{from{opacity:0}to{opacity:1}}
+@keyframes aZoom{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}
+@keyframes aFlipR{from{opacity:0;transform:perspective(900px) rotateY(-28deg);transform-origin:left center}to{opacity:1;transform:none}}
+@keyframes aFlipL{from{opacity:0;transform:perspective(900px) rotateY(28deg);transform-origin:right center}to{opacity:1;transform:none}}
+@keyframes aBounce{0%{opacity:0;transform:translateY(40px)}60%{opacity:1;transform:translateY(-6px)}80%{transform:translateY(2px)}100%{transform:none}}
+@keyframes aFall{0%{transform:translate(0,-20px) rotate(0);opacity:0}10%{opacity:.9}100%{transform:translate(var(--dx),105vh) rotate(var(--rot));opacity:0}}
+:root[data-anim="fade"] #view[class*="anim-"]{animation:aFade .3s ease-out}
+:root[data-anim="zoom"] #view[class*="anim-"]{animation:aZoom .28s cubic-bezier(.2,.8,.2,1)}
+:root[data-anim="flip"] #view.anim-r,:root[data-anim="flip"] #view.anim-f{animation:aFlipR .4s cubic-bezier(.2,.8,.2,1)}:root[data-anim="flip"] #view.anim-l{animation:aFlipL .4s cubic-bezier(.2,.8,.2,1)}
+:root[data-anim="bounce"] #view[class*="anim-"]{animation:aBounce .45s cubic-bezier(.2,.8,.2,1)}
+:root[data-anim="petal"] #view[class*="anim-"]{animation:aFade .35s ease-out}
+:root[data-anim="none"] #view[class*="anim-"],:root[data-anim="none"] nav button.on b{animation:none}
+.petal{position:fixed;top:0;width:14px;height:12px;border-radius:60% 0 60% 0;background:#f6a5b8;pointer-events:none;z-index:30;animation:aFall 1.4s ease-in forwards}
+:root[data-city="fuk"] .petal{border-radius:50%;background:#e8758f}
 nav button.on b{animation:pop .3s ease-out}
 @media (prefers-reduced-motion:reduce){#view[class*="anim-"],nav button.on b{animation:none}}
 .tsel{display:flex;align-items:center;gap:4px;flex:1;min-width:0;max-width:260px}.tsel select{flex:1;min-width:0;padding:8px 4px;text-align:center}.tsel b{font-weight:700;color:var(--mut)}
@@ -3085,6 +3100,11 @@ document.addEventListener("pointerdown", (e) => {
 function animView(cls) {
   const v = $("#view"); if (!v || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   v.classList.remove("anim-l", "anim-r", "anim-f"); void v.offsetWidth; v.classList.add(cls);
+  if (S.anim === "petal" && cls !== "anim-f") for (let i = 0; i < 10; i++) { // 花瓣飄落
+    const d = document.createElement("i"); d.className = "petal";
+    d.style.cssText = `left:${Math.random() * 100}vw;--dx:${(Math.random() - 0.5) * 120}px;--rot:${(Math.random() - 0.5) * 720}deg;animation-delay:${Math.random() * 0.35}s;transform:scale(${0.7 + Math.random() * 0.6})`;
+    document.body.appendChild(d); setTimeout(() => d.remove(), 2000);
+  }
 }
 function goTab(tab, fromHistory) {
   if (!fromHistory && tab !== S.tab) history.pushState({ tab }, "");
@@ -3192,6 +3212,7 @@ function openSettings() {
     <label>每台裝置每月上限（0 = 不限）</label><input type="number" min="0" step="1" name="gcap" value="${S.gcap == null ? 1000 : S.gcap}">
     <h3 style="margin-top:16px">顯示（這台裝置）</h3>
     <label>風格</label><select name="style">${[["auto", "🗾 跟著目的地（福岡→福岡風）"], ["fuk", "🏮 福岡"], ["wa", "🌸 櫻花和風"], ["plain", "簡約"]].map(([v, n]) => `<option value="${v}" ${(S.style ?? "auto") === v ? "selected" : ""}>${n}</option>`).join("")}</select>
+    <label>切換動畫</label><select name="anim">${[["", "左右滑動"], ["fade", "淡入"], ["zoom", "放大浮現"], ["flip", "翻頁"], ["bounce", "彈跳"], ["petal", "🌸 花瓣飄落"], ["none", "關閉"]].map(([v, n]) => `<option value="${v}" ${(S.anim || "") === v ? "selected" : ""}>${n}</option>`).join("")}</select>
     <div class="grid2" style="grid-template-columns:1fr 1fr 1fr"><div><label>主題</label><select name="theme">${[["", "自動"], ["light", "淺色"], ["dark", "深色"]].map(([v, n]) => `<option value="${v}" ${(S.theme || "") === v ? "selected" : ""}>${n}</option>`).join("")}</select></div>
       <div><label>字體</label><select name="fz">${[["1", "標準"], ["1.15", "大"], ["1.3", "特大"]].map(([v, n]) => `<option value="${v}" ${String(S.fz || 1) === v ? "selected" : ""}>${n}</option>`).join("")}</select></div>
       <div><label>深色時地圖</label><select name="mapc">${[["", "跟著變暗"], ["light", "維持亮色"]].map(([v, n]) => `<option value="${v}" ${(S.mapc || "") === v ? "selected" : ""}>${n}</option>`).join("")}</select></div></div>
@@ -3237,7 +3258,7 @@ function openSettings() {
     const gc = Math.max(0, Math.round(+fd.get("gcap") || 0)); if (gc !== (S.gcap == null ? 1000 : S.gcap)) { S.gcap = gc; gCapShown = false; S.setMt = Date.now(); }
     const rk = (fd.get("rkid") || "").trim(); if (rk !== (S.rkid || "")) { S.rkid = rk; S.setMt = Date.now(); }
     pushSettings();
-    S.style = fd.get("style") || "auto"; S.theme = fd.get("theme") || ""; S.fz = +fd.get("fz") || 1; S.mapc = fd.get("mapc") || ""; applyDisplay();
+    S.style = fd.get("style") || "auto"; S.anim = fd.get("anim") || ""; S.theme = fd.get("theme") || ""; S.fz = +fd.get("fz") || 1; S.mapc = fd.get("mapc") || ""; applyDisplay();
     t.name = fd.get("name").trim() || t.name; t.start = fd.get("start"); t.end = fd.get("end");
     t.cur = fd.get("cur"); t.home = fd.get("home");
     t.manualRate = parseFloat(fd.get("manualRate")) || 0; t.budget = parseFloat(fd.get("budget")) || 0; t.dbudget = parseFloat(fd.get("dbudget")) || 0;
@@ -3265,6 +3286,7 @@ function openSettings() {
 function applyDisplay() {
   const r = document.documentElement;
   if (S.theme) r.dataset.theme = S.theme; else delete r.dataset.theme;
+  if (S.anim) r.dataset.anim = S.anim; else delete r.dataset.anim;
   // 風格: auto = 依目的地(福岡用福岡配色, 其他用櫻花和風)
   const st = S.style ?? "auto", t = T(), fuk = /福岡|博多|fukuoka|hakata/i.test(t.loc ? `${t.loc.name} ${t.loc.q || ""}` : t.name || "");
   if (st === "plain") delete r.dataset.style; else r.dataset.style = "wa";
