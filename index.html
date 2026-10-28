@@ -492,7 +492,7 @@ const fmt = (n, d = 0) => isFinite(n) ? (NF[d] ||= new Intl.NumberFormat("zh-TW"
 
 // ===== 欄位定義(通用表單) =====
 const EXP_CATS = ["餐飲", "交通", "住宿", "門票", "購物", "伴手禮", "通訊", "機票", "其他"];
-const SPOT_CATS = ["景點", "美食", "購物", "咖啡", "夜生活", "自然", "博物館", "其他"];
+const SPOT_CATS = ["景點", "美食", "購物", "咖啡", "甜點", "夜生活", "自然", "博物館", "其他"];
 const BOOK_TYPES = ["機票", "住宿", "交通", "租車", "保險", "其他"];
 const TK_CATS = ["機票", "住宿", "車票/交通卡", "門票", "餐廳預約", "保險/證件", "其他"];
 const BAGS = ["托運", "隨身", "身上"];
@@ -1758,7 +1758,7 @@ const wakeHotel = (t, d) => hotels(t).find((b) => b.start.slice(0, 10) < d && d 
 // 待排清單常駐的住宿: 拖進行事曆 = 回飯店休息/放行李
 const hotelSpot = (t, d) => { const h = sleepHotel(t, d) || wakeHotel(t, d); return h && { id: "@hotel", _hotel: 1, name: h.title, addr: h.from || h.title, lat: h.lat, lon: h.lon, note: "" }; };
 const spotById = (t, id, d) => (id === "@hotel" ? hotelSpot(t, d || filt.cd) : t.spots.find((x) => x.id === id));
-const spotItin = (sp) => (sp._hotel ? { title: `回${sp.name}`, cat: "其他", dur: 60 } : { title: sp.name, cat: { 美食: "美食", 咖啡: "美食", 購物: "購物" }[sp.cat] || "景點", dur: 90, spotId: sp.id });
+const spotItin = (sp) => (sp._hotel ? { title: `回${sp.name}`, cat: "其他", dur: 60 } : { title: sp.name, cat: { 美食: "美食", 咖啡: "美食", 甜點: "美食", 購物: "購物" }[sp.cat] || "景點", dur: 90, spotId: sp.id });
 const hotelPt = (h) => ({ lat: h.lat, lon: h.lon, place: h.from, title: h.title });
 function hotelConn(h, item, dir) {
   const a = dir === "from" ? hotelPt(h) : item, b = dir === "from" ? item : hotelPt(h);
@@ -1920,7 +1920,7 @@ function calHtml(t) {
     h += `<div class="card noprint uscard" style="padding:8px 10px"><div class="row" data-act="usotog"><b class="sp">📍 待排景點 ${usAll.length} <span class="mut" style="font-weight:400">・${us.length ? `${matchMedia("(pointer:coarse)").matches ? "長按" : "按住"}拖到下面的時間；` : ""}排錯的行程可以拖回這裡</span></b><span class="mut">${open ? "收起 ▲" : "展開 ▼"}</span></div>
       ${open && areas.length > 1 ? `<div class="chips" style="margin:6px 0 2px">${["", ...areas].map((a) => `<button class="sm ${(filt.usa || "") === a ? "on" : ""}" data-f="usa" data-v="${esc(a)}">${a ? esc(a) : "全部"}${a ? ` ${usAll.filter((x) => areaOf(x) === a).length}` : ""}</button>`).join("")}</div>` : ""}
       ${open && hs ? (() => { const slot = freeSlot(t, d, hs); return `<div class="row usrow" data-sdrag="@hotel" style="padding:5px 0;border-top:1px solid var(--line)"><span class="handle" title="拖到下面的時間">⠿</span><span class="sp">${icatIcon("住宿")} 回 ${esc(hs.name)} <span class="mut">常駐・休息／放行李</span></span>${slot ? `<button class="sm pri" data-act="usadd" data-id="@hotel" data-tm="${slot}">＋ ${slot}</button>` : ""}</div>`; })() : ""}
-      ${open ? us.slice(0, filt.usall ? 1e9 : 5).map((sp, n, arr) => { const slot = freeSlot(t, d, sp), ar = areaOf(sp); return `${areas.length > 1 && !filt.usa && (n === 0 || areaOf(arr[n - 1]) !== ar) ? `<div class="mut" style="padding:6px 0 2px;font-weight:700;border-top:1px solid var(--line)">📍 ${esc(ar)}</div>` : ""}<div class="row usrow" data-sdrag="${sp.id}" style="padding:5px 0;border-top:1px solid var(--line)"><span class="handle" title="拖到下面的時間">⠿</span><span class="sp" data-edit="spots:${sp.id}" title="點一下編輯">${icatIcon({ 美食: "美食", 咖啡: "美食", 購物: "購物" }[sp.cat] || "景點")} ${esc(sp.name)}${cpTag(sp.name)} <span class="mut">${esc(sp.prio || "")}${sp.hours ? "・" + esc(sp.hours) : ""}</span></span>${slot ? `<button class="sm pri" data-act="usadd" data-id="${sp.id}" data-tm="${slot}">＋ ${slot}</button>` : '<span class="mut">今天排不進</span>'}</div>`; }).join("") + (us.length > 5 ? `<div class="mut" data-act="usall" style="text-align:center;padding:6px 0 0;border-top:1px solid var(--line)">${filt.usall ? "只顯示前 5 個 ▲" : `再顯示 ${us.length - 5} 個 ▼`}</div>` : "") : ""}</div>`;
+      ${open ? us.slice(0, filt.usall ? 1e9 : 5).map((sp, n, arr) => { const slot = freeSlot(t, d, sp), ar = areaOf(sp); return `${areas.length > 1 && !filt.usa && (n === 0 || areaOf(arr[n - 1]) !== ar) ? `<div class="mut" style="padding:6px 0 2px;font-weight:700;border-top:1px solid var(--line)">📍 ${esc(ar)}</div>` : ""}<div class="row usrow" data-sdrag="${sp.id}" style="padding:5px 0;border-top:1px solid var(--line)"><span class="handle" title="拖到下面的時間">⠿</span><span class="sp" data-edit="spots:${sp.id}" title="點一下編輯">${icatIcon({ 美食: "美食", 咖啡: "美食", 甜點: "美食", 購物: "購物" }[sp.cat] || "景點")} ${esc(sp.name)}${cpTag(sp.name)} <span class="mut">${esc(sp.prio || "")}${sp.hours ? "・" + esc(sp.hours) : ""}</span></span>${slot ? `<button class="sm pri" data-act="usadd" data-id="${sp.id}" data-tm="${slot}">＋ ${slot}</button>` : '<span class="mut">今天排不進</span>'}</div>`; }).join("") + (us.length > 5 ? `<div class="mut" data-act="usall" style="text-align:center;padding:6px 0 0;border-top:1px solid var(--line)">${filt.usall ? "只顯示前 5 個 ▲" : `再顯示 ${us.length - 5} 個 ▼`}</div>` : "") : ""}</div>`;
   }
   if (untimed.length) h += `<div class="card" style="padding:8px 10px"><div class="mut" style="margin-bottom:4px">未排時間（編輯時填時間就會排進下面）</div>${untimed.map((i) => `<div class="calu" data-edit="itin:${i.id}">${icatIcon(icatOf(i))} ${i._lbl ? `<b>${i._lbl}</b> ` : ""}${esc(i.title)}</div>`).join("")}</div>`;
   const nowM = d === today() ? new Date().getHours() * 60 + new Date().getMinutes() : null;
@@ -2246,11 +2246,11 @@ function optimizeDay(t, d) {
 
 // ===== 下雨備案 =====
 const OUTDOOR = /公園|神社|寺|宮|海|山|展望|城|庭園|花|動物園|島|河|步道|海灘|夜景|屋台|park|beach|garden|shrine|temple/i;
-const INDOOR = /館|博物|美術|水族|百貨|商場|購物|モール|商店街|藥妝|ドン|唐吉|拉麵|ラーメン|咖啡|カフェ|餐|食|居酒屋|電影|室內|地下|博多站|天神|museum|mall|aquarium/i;
+const INDOOR = /館|博物|美術|水族|百貨|商場|購物|モール|商店街|藥妝|ドン|唐吉|拉麵|ラーメン|咖啡|カフェ|甜點|スイーツ|餐|食|居酒屋|電影|室內|地下|博多站|天神|museum|mall|aquarium/i;
 function rainHtml(t, d) {
   const w = wxOf(t, d); if (!w || w[3] == null || w[3] < 50) return "";
   const out = t.itin.filter((i) => i.date === d && !isMulti(i) && icatOf(i) === "景點" && OUTDOOR.test(`${i.title} ${i.place || ""}`));
-  const alt = unsched(t).filter((s) => ["美食", "咖啡", "購物"].includes(s.cat) || INDOOR.test(`${s.name} ${s.addr || ""}`)).slice(0, 6);
+  const alt = unsched(t).filter((s) => ["美食", "咖啡", "甜點", "購物"].includes(s.cat) || INDOOR.test(`${s.name} ${s.addr || ""}`)).slice(0, 6);
   return `<div class="card noprint" style="padding:8px 10px;border-color:var(--warn)"><b>☔ 降雨機率 ${w[3]}%，記得帶傘</b>
     ${out.length ? `<div class="mut">可能受影響：${out.map((i) => esc(i.title)).join("、")}</div>` : ""}
     ${alt.length ? `<div class="mut" style="margin-top:4px">室內備案（點了排進今天）：</div><div class="chips" style="margin:4px 0 0">${alt.map((s) => { const sl = freeSlot(t, d, s); return sl ? `<button class="sm" data-act="usadd" data-id="${s.id}" data-tm="${sl}">＋ ${esc(s.name)}</button>` : `<button class="sm" disabled>${esc(s.name)}</button>`; }).join("")}</div>` : `<div class="mut">待排景點裡沒有室內的，可以先收幾個購物、美食、博物館備用</div>`}</div>`;
@@ -3229,7 +3229,7 @@ document.addEventListener("click", async (e) => {
   if (act) {
     e.stopPropagation();
     if (act === "spotdone") { const s = t.spots.find((x) => x.id === id); s.done = !s.done; }
-    else if (act === "spot2itin") { const s = t.spots.find((x) => x.id === id); return openForm("itin", null, null, { title: s.name, place: s.addr || s.name, note: s.note || "", lat: s.lat, lon: s.lon, spotId: s.id, cat: { 美食: "美食", 咖啡: "美食", 購物: "購物" }[s.cat] || "景點" }); }
+    else if (act === "spot2itin") { const s = t.spots.find((x) => x.id === id); return openForm("itin", null, null, { title: s.name, place: s.addr || s.name, note: s.note || "", lat: s.lat, lon: s.lon, spotId: s.id, cat: { 美食: "美食", 咖啡: "美食", 甜點: "美食", 購物: "購物" }[s.cat] || "景點" }); }
     else if (act === "tkused") { const k = t.tickets.find((x) => x.id === id); k.used = !k.used; }
     else if (act === "tkopen" || act === "fopen") {
       const k = t[el.dataset.k || "tickets"].find((x) => x.id === id);
