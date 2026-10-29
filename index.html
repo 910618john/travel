@@ -2558,18 +2558,69 @@ async function trTo(text, sl, tl) {
   const j = await (await xf(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0, 450))}&langpair=${sl}|${tl}`)).json();
   return j.responseData && j.responseData.translatedText || "";
 }
+// 禮貌修正(免費的 Google 翻譯用): 日文補です・ます, 韓文半語補요; 只動句尾, 改不了的就不動
+function politeFix(s, tl) {
+  const m = s.trim().match(/^([\s\S]*?)([。．.！!？?…]*)$/); let b = m[1], p = m[2];
+  const q = /[？?]/.test(p);
+  if (tl === "ja") {
+    if (/(です|ます|ください|でしょう|でしょうか|ません|ました|でした|ませんか|ますか|ですか|ましょう|ございます|お願いします|すみません|ありがとう)$/.test(b) || !b) return s;
+    if (/(だ|だよ|だね|だな)$/.test(b)) b = b.replace(/(だ|だよ|だね|だな)$/, "です");
+    else if (/(ない)$/.test(b) && q) b = b.replace(/ない$/, "ないですか");
+    else if (/[゠-ヿ一-鿿らこそあどれ]$/.test(b)) b += q ? "ですか" : "です";
+    else if (/い$/.test(b)) b += q ? "ですか" : "です"; // 形容詞: 美味しい → 美味しいです
+    else return s;
+    if (q && !/か$/.test(b)) b += "か";
+    return b + (q ? "？" : p);
+  }
+  if (tl === "ko") {
+    if (/(요|니다|니까|세요)$/.test(b) || !b) return s;
+    if (/(이야|야)$/.test(b)) b = b.replace(/(이야|야)$/, (x) => (x === "이야" ? "이에요" : "예요"));
+    else if (/[어아해워와줘봐돼지네]$/.test(b)) b += "요";
+    else return s;
+    return b + p;
+  }
+  return s;
+}
+// AI 翻譯(Claude): 有填金鑰才用; 會依當地說話習慣用敬語、委婉說法, 並參考前幾句對話
+const CLAUDE_SDK = "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.65.0/+esm";
+let claudeC = null;
+async function claudeClient() {
+  if (!claudeC || claudeC._k !== S.ckey) {
+    const { default: Anthropic } = await import(CLAUDE_SDK);
+    claudeC = new Anthropic({ apiKey: S.ckey, dangerouslyAllowBrowser: true, timeout: 30000, maxRetries: 1 }); claudeC._k = S.ckey;
+  }
+  return claudeC;
+}
+const CV_NAT = { 日文: "Japanese", 韓文: "Korean", 英文: "English", 泰文: "Thai" };
+async function aiTr(t, text, me, L) {
+  const c = await claudeClient(), place = (t.loc && (t.loc.country || t.loc.name)) || "";
+  const ctx = cv.log.filter((m) => m.out).slice(-4).map((m) => `${m.me ? "Traveler" : "Local"}: ${m.src}`).join("\n");
+  const r = await c.beta.messages.create({
+    model: "claude-opus-5-5", max_tokens: 4000, output_config: { effort: "low" },
+    betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
+    system: `You are a live interpreter between a traveler from Taiwan and local people (shop staff, restaurant staff, drivers, hotel staff, passers-by)${place ? ` in ${place}` : ""}. ` +
+      `Translate the message exactly in meaning, but phrase it the way a native speaker would naturally say it in that situation. ` +
+      `Into ${CV_NAT[L]}: use the polite register locals expect when a customer or stranger speaks to staff (Japanese です/ます with soft request forms like 〜てもらえますか / 〜をお願いします; Korean 해요체 or 합니다체; Thai with polite particles; English polite but natural). Turn blunt commands into polite requests. ` +
+      `Into Chinese: natural Traditional Chinese as spoken in Taiwan (台灣用語), keeping the speaker's tone; if the local used set phrases or honorifics, render their meaning naturally rather than literally. ` +
+      `Speech recognition may contain small mistakes; translate the most likely intended meaning. Reply with the translation only - no quotes, notes, romanization or explanations.`,
+    messages: [{ role: "user", content: `${ctx ? `Recent conversation (for context only):\n${ctx}\n\n` : ""}Translate this ${me ? `from Chinese into ${CV_NAT[L]}` : `from ${CV_NAT[L]} into Traditional Chinese (Taiwan)`}:\n${text}` }],
+  });
+  if (r.stop_reason === "refusal") return "";
+  return r.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+}
 const CV_SAY = { 日文: "日本語で話す", 韓文: "한국어로 말하기", 英文: "Speak English", 泰文: "พูดภาษาไทย" };
 let cv = { log: [], on: "", rec: null };
 const cvLang = (t) => { const L = filt.lang || defLang(t), x = LANGS.find((y) => y[0] === L); return { L, code: x[2], tl: x[2].slice(0, 2) }; };
 function cvHtml(t) {
   const { L } = cvLang(t), SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const bub = (m, k) => `<div class="card cvb ${m.me ? "me" : "you"}" data-act="cvbig" data-i="${k}"><div class="mut" style="font-size:calc(12px*var(--fz,1))">${m.me ? "🙋 我" : "🧑 對方"}：${esc(m.src)}</div><div class="row" style="margin-top:2px;flex-wrap:nowrap;align-items:flex-start"><div class="sp" style="font-size:calc(19px*var(--fz,1));font-weight:700">${m.out ? esc(m.out) : '<span class="mut">翻譯中…</span>'}</div>${m.out ? `<button class="sm" data-act="cvsay" data-i="${k}">🔊</button>` : ""}</div></div>`;
+  const bub = (m, k) => `<div class="card cvb ${m.me ? "me" : "you"}" data-act="cvbig" data-i="${k}"><div class="mut" style="font-size:calc(12px*var(--fz,1))">${m.me ? "🙋 我" : "🧑 對方"}：${esc(m.src)}${m.ai ? " ・🤖" : ""}</div><div class="row" style="margin-top:2px;flex-wrap:nowrap;align-items:flex-start"><div class="sp" style="font-size:calc(19px*var(--fz,1));font-weight:700">${m.out ? esc(m.out) : '<span class="mut">翻譯中…</span>'}</div>${m.out ? `<button class="sm" data-act="cvsay" data-i="${k}">🔊</button>` : ""}</div></div>`;
   return `<div class="chips">${LANGS.map(([n]) => `<button class="${n === L ? "on" : ""}" data-f="lang" data-v="${n}">${n}</button>`).join("")}</div>
     ${SR ? `<div class="row" style="gap:8px;margin-bottom:8px">
       <button class="cvmic ${cv.on === "me" ? "on" : ""}" data-act="cvmic" data-dir="me">🎤<b>${cv.on === "me" ? "說完按這裡" : "我說中文"}</b><small>翻成${L}並唸出來</small></button>
       <button class="cvmic you ${cv.on === "you" ? "on" : ""}" data-act="cvmic" data-dir="you">🎤<b>${cv.on === "you" ? "話し終わったらタップ" : CV_SAY[L]}</b><small>對方說，翻成中文</small></button></div>
       <div class="card mut" id="cvLive" style="padding:6px 10px;margin:0 0 6px;text-align:center">${cv.on ? "聽中…說完按一下按鈕就翻譯" : "按一下開始說話・點對話可放大給對方看"}</div>`
     : `<div class="card mut">這個瀏覽器不支援語音辨識，可以打字，或用鍵盤上的 🎤 聽寫</div>`}
+    <div class="mut" style="font-size:calc(12px*var(--fz,1));margin:2px 0 6px">${S.ckey ? "🤖 AI 翻譯：依當地習慣用敬語、會參考前面的對話" : "Google 翻譯＋自動補敬語・在設定填 Claude 金鑰可改用更自然的 AI 翻譯"}</div>
     <div class="row" style="gap:6px;margin:6px 0"><input id="cvTxt" placeholder="也可以打字" style="flex:1"><button class="sm" data-act="cvtype" data-dir="me">→${L}</button><button class="sm" data-act="cvtype" data-dir="you">→中文</button></div>
     ${cv.log.length ? `<div class="row" style="margin-bottom:6px"><span class="sp"></span><button class="sm" data-act="cvclr">清除對話</button></div>` : ""}
     ${cv.log.map((m, k) => [m, k]).reverse().map(([m, k]) => bub(m, k)).join("")}`;
@@ -2577,7 +2628,9 @@ function cvHtml(t) {
 async function cvAdd(t, me, text) {
   const { tl, code } = cvLang(t), m = { me, src: text, out: "" };
   cv.log.push(m); render();
-  try { m.out = await trTo(text, me ? "zh-TW" : tl, me ? tl : "zh-TW"); } catch (e) { }
+  const { L } = cvLang(t);
+  if (S.ckey) { try { m.out = await aiTr(t, text, me, L); m.ai = !!m.out; } catch (e) { if (!cvAdd.warned) { cvAdd.warned = 1; toast("AI 翻譯失敗，先用 Google 翻譯：" + (e.status === 401 ? "金鑰不對" : e.message || e)); } } }
+  if (!m.out) try { m.out = await trTo(text, me ? "zh-TW" : tl, me ? tl : "zh-TW"); if (m.out && me) m.out = politeFix(m.out, tl); } catch (e) { }
   if (!m.out) { m.out = ""; cv.log = cv.log.filter((x) => x !== m); render(); return toast("翻譯失敗（需要網路）"); }
   m.lang = me ? code : "zh-TW"; render(); speak(m.out, m.lang);
 }
@@ -3523,9 +3576,10 @@ function openSettings() {
     <div class="mut">資料存在這台裝置的瀏覽器。換手機或備份請用匯出/匯入（票券檔案不含在 JSON 內）。</div>
     <div class="row" style="margin-top:6px"><button type="button" data-act="offline">📦 下載離線包</button><span class="mut sp">票券、照片、地圖存到這台，沒網路也能看</span></div>
     <div class="row" style="margin-top:6px"><button value="export" formnovalidate>匯出備份</button><label class="btn" style="margin:0;color:var(--fg)">匯入備份<input type="file" accept=".json" id="impFile" hidden></label></div>
-    <h3 style="margin-top:16px">Google 路線</h3>
-    <label>金鑰（選填，填了交通時間改用 Google 計算）</label><input name="gkey" value="${esc(S.gkey || "")}" placeholder="AIza…" autocomplete="off">
+    <h3 style="margin-top:16px">API 金鑰（選填）</h3>
+    <label>Google 路線金鑰（填了交通時間改用 Google 計算）</label><input name="gkey" value="${esc(S.gkey || "")}" placeholder="AIza…" autocomplete="off">
     <div class="mut">沒填就用距離粗估。本月這台裝置已查 <b>${S.gcnt && S.gcnt.m === new Date().toISOString().slice(0, 7) ? S.gcnt.n : 0}</b> 次（查過的會記住，改了才重查）</div>
+    <label>Claude API 金鑰（選填，對話翻譯改用 AI，更自然、會用敬語）</label><input name="ckey" value="${esc(S.ckey || "")}" placeholder="sk-ant-… 到 console.anthropic.com 申請" autocomplete="off">
     <label>樂天 API ID（選填，掃商品時自動查日本網購價格）</label><input name="rkid" value="${esc(S.rkid || "")}" placeholder="到 webservice.rakuten.co.jp 免費申請" autocomplete="off">
     <label>每台裝置每月上限（0 = 不限）</label><input type="number" min="0" step="1" name="gcap" value="${S.gcap == null ? 1000 : S.gcap}">
     <h3 style="margin-top:16px">顯示（這台裝置）</h3>
@@ -3575,6 +3629,7 @@ function openSettings() {
     const gk = (fd.get("gkey") || "").trim(); if (gk !== (S.gkey || "")) { S.gkey = gk; gErrShown = false; gFail.clear(); S.setMt = Date.now(); }
     const gc = Math.max(0, Math.round(+fd.get("gcap") || 0)); if (gc !== (S.gcap == null ? 1000 : S.gcap)) { S.gcap = gc; gCapShown = false; S.setMt = Date.now(); }
     const rk = (fd.get("rkid") || "").trim(); if (rk !== (S.rkid || "")) { S.rkid = rk; S.setMt = Date.now(); }
+    const ck = (fd.get("ckey") || "").trim(); if (ck !== (S.ckey || "")) { S.ckey = ck; cvAdd.warned = 0; S.setMt = Date.now(); }
     pushSettings();
     S.style = fd.get("style") || "auto"; S.anim = fd.get("anim") || ""; S.theme = fd.get("theme") || ""; S.fz = +fd.get("fz") || 1; S.mapc = fd.get("mapc") || "";
     t.name = fd.get("name").trim() || t.name; t.start = fd.get("start"); t.end = fd.get("end");
@@ -3644,10 +3699,10 @@ function syncSection() {
 // 給 sync.js 用的介面
 window.TravelApp = {
   // 帳號設定(Google 路線金鑰、每月上限、緊急卡資料), 登入同一帳號的裝置共用; mt 新的蓋舊的
-  settings: () => ({ gkey: S.gkey || "", gcap: S.gcap ?? 1000, rkid: S.rkid || "", me: S.me || null, mt: S.setMt || 0 }),
+  settings: () => ({ gkey: S.gkey || "", gcap: S.gcap ?? 1000, rkid: S.rkid || "", ckey: S.ckey || "", me: S.me || null, mt: S.setMt || 0 }),
   applySettings(d) {
     if (!d || (d.mt || 0) <= (S.setMt || 0)) return false;
-    S.gkey = d.gkey || ""; S.gcap = d.gcap ?? 1000; S.rkid = d.rkid || ""; if (d.me) S.me = d.me; S.setMt = d.mt;
+    S.gkey = d.gkey || ""; S.gcap = d.gcap ?? 1000; S.rkid = d.rkid || ""; S.ckey = d.ckey || ""; if (d.me) S.me = d.me; S.setMt = d.mt;
     gErrShown = false; gFail.clear(); saveLocal(); if (!$("#dlg").open) render(); return true;
   },
   trips: () => S.trips,
