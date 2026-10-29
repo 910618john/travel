@@ -2566,9 +2566,9 @@ function cvHtml(t) {
   const bub = (m, k) => `<div class="card cvb ${m.me ? "me" : "you"}" data-act="cvbig" data-i="${k}"><div class="mut" style="font-size:calc(12px*var(--fz,1))">${m.me ? "🙋 我" : "🧑 對方"}：${esc(m.src)}</div><div class="row" style="margin-top:2px;flex-wrap:nowrap;align-items:flex-start"><div class="sp" style="font-size:calc(19px*var(--fz,1));font-weight:700">${m.out ? esc(m.out) : '<span class="mut">翻譯中…</span>'}</div>${m.out ? `<button class="sm" data-act="cvsay" data-i="${k}">🔊</button>` : ""}</div></div>`;
   return `<div class="chips">${LANGS.map(([n]) => `<button class="${n === L ? "on" : ""}" data-f="lang" data-v="${n}">${n}</button>`).join("")}</div>
     ${SR ? `<div class="row" style="gap:8px;margin-bottom:8px">
-      <button class="cvmic ${cv.on === "me" ? "on" : ""}" data-act="cvmic" data-dir="me">🎤<b>${cv.on === "me" ? "聽你說…" : "我說中文"}</b><small>翻成${L}並唸出來</small></button>
-      <button class="cvmic you ${cv.on === "you" ? "on" : ""}" data-act="cvmic" data-dir="you">🎤<b>${cv.on === "you" ? "聞いています…" : CV_SAY[L]}</b><small>對方說，翻成中文</small></button></div>
-      <div class="card mut" id="cvLive" style="padding:6px 10px;margin:0 0 6px;text-align:center">${cv.on ? "說完會自動翻譯；再按一次停止" : "按一下開始說話・點對話可放大給對方看"}</div>`
+      <button class="cvmic ${cv.on === "me" ? "on" : ""}" data-act="cvmic" data-dir="me">🎤<b>${cv.on === "me" ? "說完按這裡" : "我說中文"}</b><small>翻成${L}並唸出來</small></button>
+      <button class="cvmic you ${cv.on === "you" ? "on" : ""}" data-act="cvmic" data-dir="you">🎤<b>${cv.on === "you" ? "話し終わったらタップ" : CV_SAY[L]}</b><small>對方說，翻成中文</small></button></div>
+      <div class="card mut" id="cvLive" style="padding:6px 10px;margin:0 0 6px;text-align:center">${cv.on ? "聽中…說完按一下按鈕就翻譯" : "按一下開始說話・點對話可放大給對方看"}</div>`
     : `<div class="card mut">這個瀏覽器不支援語音辨識，可以打字，或用鍵盤上的 🎤 聽寫</div>`}
     <div class="row" style="gap:6px;margin:6px 0"><input id="cvTxt" placeholder="也可以打字" style="flex:1"><button class="sm" data-act="cvtype" data-dir="me">→${L}</button><button class="sm" data-act="cvtype" data-dir="you">→中文</button></div>
     ${cv.log.length ? `<div class="row" style="margin-bottom:6px"><span class="sp"></span><button class="sm" data-act="cvclr">清除對話</button></div>` : ""}
@@ -2583,15 +2583,17 @@ async function cvAdd(t, me, text) {
 }
 function cvMic(t, dir) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!SR) return;
-  if (cv.rec) { const was = cv.on; try { cv.rec.stop(); } catch (e) { } if (was === dir) return; }
+  // 聽的時候再按一次 = 說完了: 馬上用目前聽到的字翻譯, 不等辨識自己結束
+  if (cv.rec) { const was = cv.on, r0 = cv.rec, txt = (cv.heard || "").trim(); cv.rec = null; cv.on = ""; cv.heard = ""; try { r0.abort(); } catch (e) { }
+    if (was === dir) return txt ? cvAdd(t, dir === "me", txt) : render(); }
   // iPhone 要在按下的當下先唸一次(空字串), 之後翻譯完才唸得出來
   if (window.speechSynthesis) { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance("")); }
-  const r = new SR(), { code } = cvLang(t); let fin = "";
-  r.lang = dir === "me" ? "zh-TW" : code; r.interimResults = true; r.continuous = false;
-  r.onresult = (e) => { let s = ""; for (const x of e.results) { if (x.isFinal) fin = [...e.results].filter((y) => y.isFinal).map((y) => y[0].transcript).join(""); s += x[0].transcript; } const el = $("#cvLive"); if (el) el.textContent = s; };
+  const r = new SR(), { code } = cvLang(t);
+  r.lang = dir === "me" ? "zh-TW" : code; r.interimResults = true; r.continuous = true;
+  r.onresult = (e) => { cv.heard = [...e.results].map((x) => x[0].transcript).join(""); const el = $("#cvLive"); if (el) el.textContent = cv.heard; };
   r.onerror = (e) => { if (e.error !== "aborted" && e.error !== "no-speech") toast(e.error === "not-allowed" ? "麥克風沒有權限：請到瀏覽器設定允許" : "語音辨識失敗：" + e.error); };
-  r.onend = () => { if (cv.rec !== r) return; cv.rec = null; cv.on = ""; const txt = fin.trim() || (($("#cvLive") || {}).textContent || "").trim(); if (txt && !/^(說完會|按一下)/.test(txt)) cvAdd(t, dir === "me", txt); else render(); };
-  cv.rec = r; cv.on = dir; render();
+  r.onend = () => { if (cv.rec !== r) return; const txt = (cv.heard || "").trim(); cv.rec = null; cv.on = ""; cv.heard = ""; txt ? cvAdd(t, dir === "me", txt) : render(); };
+  cv.rec = r; cv.on = dir; cv.heard = ""; render();
   try { r.start(); } catch (e) { cv.rec = null; cv.on = ""; render(); toast("麥克風啟動失敗，再按一次"); }
 }
 function trHtml(t) {
