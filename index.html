@@ -256,6 +256,20 @@ dialog form{overflow-x:hidden}
 .cvmic b{font-size:calc(16px*var(--fz,1))}.cvmic small{font-size:calc(11px*var(--fz,1));opacity:.85}
 .cvmic.you{background:#3a6b5a}.cvmic.on{animation:cvp 1s ease-in-out infinite}
 @keyframes cvp{50%{box-shadow:0 0 0 8px rgba(230,120,140,.35)}}
+#ffov{position:fixed;inset:0;z-index:900;background:var(--bg);display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+html.ffon,html.ffon body{overflow:hidden}
+.ffpane{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-height:0}
+.ffpane.top{transform:rotate(180deg);background:color-mix(in srgb,var(--bg) 85%,#3a6b5a)}
+.ffpane>:first-child{margin-top:auto}
+.ffmsg{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px;font-size:calc(20px*var(--fz,1));font-weight:700;line-height:1.4;opacity:.75;cursor:pointer;word-break:break-word}
+.ffmsg.last{font-size:calc(30px*var(--fz,1));opacity:1}
+.ffsrc{font-size:calc(14px*var(--fz,1));font-weight:400;color:var(--mut)}
+.fflive{font-size:calc(18px*var(--fz,1));color:var(--mut);text-align:center;min-height:0}
+.ffhint{color:var(--mut);text-align:center;margin:auto 0;font-size:calc(16px*var(--fz,1))}
+.ffbar{display:flex;gap:8px;padding:8px;align-items:stretch;border-top:2px solid var(--line);border-bottom:2px solid var(--line);background:var(--card)}
+.ffbar .cvmic{min-height:72px;padding:8px 4px;font-size:22px}.ffbar>.cvmic,.ffbar .flip{flex:1;display:flex}
+.ffbar .flip{transform:rotate(180deg)}.ffbar .flip .cvmic{flex:1}
+.ffmid{display:flex;flex-direction:column;gap:6px;justify-content:center}
 .cvb{cursor:pointer;padding:16px 14px}.cvb [data-act=cvsay]{font-size:20px;padding:8px 12px}.cvb.me{border-left:4px solid var(--acc)}.cvb.you{border-left:4px solid #3a6b5a;background:color-mix(in srgb,var(--card) 88%,#3a6b5a)}
 .huge{font-size:calc(40px*var(--fz,1));font-weight:700;line-height:1.35;text-align:center;padding:24px 4px;word-break:break-word}
 @media print{.rimg{width:auto!important;height:auto!important;max-width:100%!important;max-height:12cm!important}.card.row:has(.rimg){display:block}header,nav,.fab,.noprint,.chips{display:none!important}.printonly{display:block!important}body{padding:0;background:#fff;color:#000}.card{break-inside:avoid;border-color:#ccc;background:#fff}.daybar{position:static;background:#fff}a{color:#000}}
@@ -2615,6 +2629,7 @@ function cvHtml(t) {
   const { L } = cvLang(t), SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const bub = (m, k) => `<div class="card cvb ${m.me ? "me" : "you"}" data-act="cvbig" data-i="${k}"><div class="mut" style="font-size:calc(15px*var(--fz,1))">${m.me ? "🙋 我" : "🧑 對方"}：${esc(m.src)}${m.ai ? " ・🤖" : ""}</div><div class="row" style="margin-top:2px;flex-wrap:nowrap;align-items:flex-start"><div class="sp" style="font-size:calc(26px*var(--fz,1));font-weight:700;line-height:1.4">${m.out ? esc(m.out) : '<span class="mut">翻譯中…</span>'}</div>${m.out ? `<button class="sm" data-act="cvsay" data-i="${k}">🔊</button>` : ""}</div></div>`;
   return `<div class="chips">${LANGS.map(([n]) => `<button class="${n === L ? "on" : ""}" data-f="lang" data-v="${n}">${n}</button>`).join("")}</div>
+    <button class="pri" data-act="cvff" style="width:100%;margin:0 0 8px;padding:12px;font-size:calc(16px*var(--fz,1))">🔄 面對面模式（手機平放在中間，上半部給對方看）</button>
     ${SR ? `<div class="row" style="gap:8px;margin-bottom:8px">
       <button class="cvmic ${cv.on === "me" ? "on" : ""}" data-act="cvmic" data-dir="me">🎤<b>${cv.on === "me" ? "說完按這裡" : "我說中文"}</b><small>翻成${L}並唸出來</small></button>
       <button class="cvmic you ${cv.on === "you" ? "on" : ""}" data-act="cvmic" data-dir="you">🎤<b>${cv.on === "you" ? "話し終わったらタップ" : CV_SAY[L]}</b><small>對方說，翻成中文</small></button></div>
@@ -2624,6 +2639,27 @@ function cvHtml(t) {
     <div class="row" style="gap:6px;margin:6px 0"><input id="cvTxt" placeholder="也可以打字" style="flex:1;font-size:calc(18px*var(--fz,1));padding:12px"><button class="sm" data-act="cvtype" data-dir="me">→${L}</button><button class="sm" data-act="cvtype" data-dir="you">→中文</button></div>
     ${cv.log.length ? `<div class="row" style="margin-bottom:6px"><span class="sp"></span><button class="sm" data-act="cvclr">清除對話</button></div>` : ""}
     ${cv.log.map((m, k) => [m, k]).reverse().map(([m, k]) => bub(m, k)).join("")}`;
+}
+// 面對面模式: 全螢幕上下兩半; 上半部轉 180 度給對面的人看(我說的翻成他的語言), 下半部是他說的翻成中文, 按鈕在中間
+function cvFFHtml(t) {
+  const { L } = cvLang(t), SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const pane = (me) => { const ms = cv.log.map((m, k) => [m, k]).filter(([m]) => m.me === me), last = ms.length - 1;
+    return ms.map(([m, k], n) => `<div class="ffmsg ${n === last ? "last" : ""}" data-act="cvsay" data-i="${k}">${me ? "" : `<div class="ffsrc">${esc(m.src)}</div>`}<div>${m.out ? esc(m.out) : "…"}</div></div>`).join("")
+      + `<div class="fflive" ${cv.on === (me ? "me" : "you") ? 'id="cvLive"' : ""}></div>`
+      + (ms.length ? "" : `<div class="ffhint">${me ? { 日文: "ここに翻訳が表示されます", 韓文: "여기에 번역이 표시됩니다", 英文: "Translations will appear here", 泰文: "คำแปลจะแสดงที่นี่" }[L] : "對方說的話會翻成中文顯示在這裡"}</div>`); };
+  const mic = (dir) => `<button class="cvmic ${dir === "you" ? "you" : ""} ${cv.on === dir ? "on" : ""}" data-act="cvmic" data-dir="${dir}" ${SR ? "" : "disabled"}>🎤<b>${dir === "me" ? (cv.on === "me" ? "說完按這裡" : "我說中文") : cv.on === "you" ? { 日文: "話し終わったらタップ", 韓文: "다 말하면 누르세요", 英文: "Tap when done", 泰文: "พูดจบแล้วแตะ" }[L] : CV_SAY[L]}</b></button>`;
+  return `<div class="ffpane top">${pane(true)}</div>
+    <div class="ffbar"><div class="flip">${mic("you")}</div><div class="ffmid"><button class="sm" data-act="cvffx">✕</button>${cv.log.length ? '<button class="sm" data-act="cvclr">清除</button>' : ""}</div>${mic("me")}</div>
+    <div class="ffpane">${pane(false)}</div>`;
+}
+function ffSync() {
+  const on = S.tab === "fx" && filt.tool === "對話" && cv.ff;
+  let ov = $("#ffov");
+  if (!on) { if (ov) ov.remove(); document.documentElement.classList.remove("ffon"); return; }
+  if (!ov) { ov = document.createElement("div"); ov.id = "ffov"; document.body.appendChild(ov); }
+  document.documentElement.classList.add("ffon");
+  ov.innerHTML = cvFFHtml(T());
+  ov.querySelectorAll(".ffpane").forEach((e) => (e.scrollTop = e.scrollHeight));
 }
 async function cvAdd(t, me, text) {
   const { tl, code } = cvLang(t), m = { me, src: text, out: "" };
@@ -2643,7 +2679,7 @@ function cvMic(t, dir) {
   if (window.speechSynthesis) { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance("")); }
   const r = new SR(), { code } = cvLang(t);
   r.lang = dir === "me" ? "zh-TW" : code; r.interimResults = true; r.continuous = true;
-  r.onresult = (e) => { cv.heard = [...e.results].map((x) => x[0].transcript).join(""); const el = $("#cvLive"); if (el) el.textContent = cv.heard; };
+  r.onresult = (e) => { cv.heard = [...e.results].map((x) => x[0].transcript).join(""); const el = $("#ffov #cvLive") || $("#cvLive"); if (el) el.textContent = cv.heard; };
   r.onerror = (e) => { if (e.error !== "aborted" && e.error !== "no-speech") toast(e.error === "not-allowed" ? "麥克風沒有權限：請到瀏覽器設定允許" : "語音辨識失敗：" + e.error); };
   r.onend = () => { if (cv.rec !== r) return; const txt = (cv.heard || "").trim(); cv.rec = null; cv.on = ""; cv.heard = ""; txt ? cvAdd(t, dir === "me", txt) : render(); };
   cv.rec = r; cv.on = dir; cv.heard = ""; render();
@@ -3294,6 +3330,7 @@ function render() {
   if (S.tab === "fx") toolBind(t);
   if (S.tab === "itin" && filt.iv === "地圖") initMap(t);
   if (S.tab === "fx" && filt.tool === "足跡") initFp();
+  ffSync();
   if ((S.tab === "tickets" && filt.tk === "優惠券") || (S.tab === "exp" && filt.ex === "收據整理") || (S.tab === "itin" && filt.iv === "日記") || (S.tab === "pack" && (filt.pk || "必買") === "必買")) fillThumbs();
   if (S.tab === "itin" && (filt.iv || "行事曆") === "行事曆") { calScroll(); gRouteDay(t, filt.cd); autoGeoDay(t, filt.cd); autoStations(t, filt.cd); }
   if (S.tab === "itin" && filt.iv === "清單") [...new Set(t.itin.map((i) => i.date))].forEach((d) => { if (d) { if (S.gkey) gRouteDay(t, d); autoStations(t, d); } });
@@ -3365,6 +3402,8 @@ document.addEventListener("click", async (e) => {
     else if (act === "cvsay") { const m = cv.log[+el.dataset.i]; return m && speak(m.out, m.lang); }
     else if (act === "cvbig") { const m = cv.log[+el.dataset.i]; return m && m.out && showBig(m.out, m.src, m.lang); }
     else if (act === "cvclr") { cv.log = []; return render(); }
+    else if (act === "cvff") { cv.ff = true; return render(); }
+    else if (act === "cvffx") { cv.ff = false; if (cv.rec) { try { cv.rec.abort(); } catch (e) { } cv.rec = null; cv.on = ""; } return render(); }
     else if (act === "trgo") { trState.src = $("#trSrc").value.trim(); if (!trState.src) return; trState.busy = "翻譯中…"; trState.out = ""; render(); trText(trState.src, t).then((o) => { trState.out = o; trState.busy = o ? "" : "翻譯失敗"; }).catch(() => { trState.busy = "翻譯失敗（需要網路）"; }).finally(render); return; }
     else if (act === "hourschk") return hoursCheck(t);
     else if (act === "airport") return airportPlan(t, t.books.find((x) => x.id === el.dataset.id));
