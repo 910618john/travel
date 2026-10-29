@@ -46,7 +46,8 @@ button,.btn{border:1px solid var(--line);background:var(--card);color:var(--fg);
 .sm{padding:3px 8px;font-size:calc(12px*var(--fz,1))}
 .del{color:var(--red)}
 input,select,textarea{width:100%;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:8px;padding:8px;font:inherit;font-size:max(16px,calc(15px*var(--fz,1)))}
-#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));background:#1f2328;color:#fff;border-radius:24px;padding:8px 8px 8px 16px;display:none;align-items:center;gap:10px;z-index:40;box-shadow:0 4px 14px #0005;white-space:nowrap}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));background:#1f2328;color:#fff;border-radius:24px;padding:8px 8px 8px 16px;display:none;align-items:center;gap:10px;z-index:950;box-shadow:0 4px 14px #0005;width:max-content;max-width:calc(100vw - 24px);box-sizing:border-box}
+#toast button{flex-shrink:0;white-space:nowrap}
 #toast button{background:none;border:0;color:#5eead4;font-weight:700}
 .hit{padding:8px 0;border-bottom:1px solid var(--line);cursor:pointer}
 .hit:last-child{border:0}
