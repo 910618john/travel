@@ -3530,7 +3530,7 @@ function animView(cls) {
   }
 }
 // 背景大圖先在閒置時解碼好, 換分頁時不會邊翻頁邊解碼而卡頓
-(window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => ["family-japan-travel-bg-v4", "page-itinerary-v1", "page-bookings-v1", "page-tickets-v1", "page-expenses-v1", "page-tools-v1", "page-packing-v1"]
+(window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => ["page-itinerary-v1", "page-bookings-v1", "page-tickets-v1", "page-expenses-v1", "page-tools-v1", "page-packing-v1"]
   .forEach((n) => { const im = new Image(); im.src = `assets/${n}.webp`; im.decode && im.decode().catch(() => {}); (window.__bgKeep ||= []).push(im); }));
 function goTab(tab, fromHistory) {
   if (!fromHistory && tab !== S.tab) history.pushState({ tab }, "");
