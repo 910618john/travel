@@ -221,6 +221,8 @@ dialog form{overflow-x:hidden}
 .cptag{background:color-mix(in srgb,var(--warn) 25%,transparent);color:var(--fg);cursor:pointer;font-weight:600}
 .badge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--red);color:#fff;font-size:calc(11px*var(--fz,1));line-height:18px;text-align:center}
 .cal{--trw:0px}
+.cale:has(.calmap) .calt,.cale:has(.calmap) .calti{padding-right:20px}
+.calmap{position:absolute;right:3px;top:2px;z-index:2;font-size:15px;line-height:1;padding:3px;border-radius:6px;background:color-mix(in srgb,var(--card) 70%,transparent);text-decoration:none}
 .caltr .calrs{z-index:3;height:7px}.caltr .calrs.top{top:-2px}.caltr .calrs:not(.top){bottom:-2px}
 .calrs.top{top:0;bottom:auto}.calrs.top::after{bottom:auto;top:3px}
 .calrs{position:absolute;left:0;right:0;bottom:0;height:9px;cursor:ns-resize}
@@ -1977,7 +1979,7 @@ function calHtml(t) {
   for (const v of calLayout(evs)) {
     const top = ((v.s - lo * 60) / 60) * HPX, ht = Math.max(26, ((v.e - v.s) / 60) * HPX - 3), w = 100 / v.cols, i = v.i, warn = hoursWarn(i, t) || (late.has(i.id) ? "⚠️ 交通來不及" : "");
     const m = MODES.find((x) => x[0] === i.mode);
-    h += `<div class="cale c-${icatOf(i)}${warn ? " warn" : ""}" data-edit="itin:${i.id}" data-cdrag="${i.id}"${v.label ? ` data-clbl="${d === i.date ? "in" : "out"}"` : ""} style="top:${top}px;height:${ht}px;left:calc(var(--trw) + (100% - var(--trw)) * ${v.col / v.cols} + 2px);width:calc((100% - var(--trw)) / ${v.cols} - 4px)"><div class="calrs noprint" data-crs></div>
+    h += `<div class="cale c-${icatOf(i)}${warn ? " warn" : ""}" data-edit="itin:${i.id}" data-cdrag="${i.id}"${v.label ? ` data-clbl="${d === i.date ? "in" : "out"}"` : ""} style="top:${top}px;height:${ht}px;left:calc(var(--trw) + (100% - var(--trw)) * ${v.col / v.cols} + 2px);width:calc((100% - var(--trw)) / ${v.cols} - 4px)"><div class="calrs noprint" data-crs></div>${itinMapUrl(i) ? `<a class="calmap noprint" href="${esc(itinMapUrl(i))}" target="_blank" rel="noopener" title="用 Google 地圖開">🗺</a>` : ""}
       ${ht < 44 ? '<div class="calone">' : ""}<span class="calt">${v.label ? `${v.label} ${esc(v.range)}` : `${esc(i.time)}${i.end && ht >= 44 ? "–" + esc(i.end) : ""}`}</span>
       <div class="calti">${icatIcon(icatOf(i))} ${esc(i.title)}${warn ? " ⚠️" : ""}${cpTag(i.title + " " + (i.place || ""), true)}</div>${ht < 44 ? "</div>" : ""}
       ${warn && ht >= 90 ? `<div class="calw">${warn}</div>` : ""}</div>`;
@@ -2045,7 +2047,7 @@ document.addEventListener("pointerdown", (e) => {
   addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", end);
 });
 document.addEventListener("pointerdown", (e) => {
-  const el = e.target.closest && e.target.closest("[data-cdrag]"); if (!el || e.button > 0) return;
+  const el = e.target.closest && e.target.closest("[data-cdrag]"); if (!el || e.button > 0 || e.target.closest("a")) return;
   const cal = el.closest(".cal"), lo = +cal.dataset.lo;
   const st = { el, id: el.dataset.cdrag, resize: !!e.target.closest("[data-crs]"), lbl: el.dataset.clbl, y0: e.clientY, top0: parseFloat(el.style.top), h0: parseFloat(el.style.height) + 3, lo, maxY: parseFloat(cal.style.height), active: false, pid: e.pointerId };
   const SNAP = HPX / 4;
@@ -2938,6 +2940,8 @@ function scanHtml(t) {
 
 // ===== 畫面 =====
 const TABS = [["home", "assets/nav-home-v1.webp", "總覽"], ["itin", "assets/nav-itinerary-v1.webp", "行程"], ["books", "assets/nav-bookings-v1.webp", "訂位"], ["tickets", "assets/nav-tickets-v1.webp", "票券"], ["exp", "assets/nav-expenses-v1.webp", "花費"], ["fx", "assets/nav-tools-v1.webp", "工具"], ["pack", "assets/nav-packing-v1.webp", "清單"]];
+// 單一行程的 Google 地圖連結(有地址用地址, 沒有就用座標或名稱)
+const itinMapUrl = (i) => { const q = geoQ(i); return !q ? "" : isUrl(i.place || "") ? i.place : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`; };
 const mapLink = (s) => !s ? "" : /^https?:/.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">地圖↗</a>` : `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`;
 const dayName = (d) => d ? ["日", "一", "二", "三", "四", "五", "六"][new Date(d + "T00:00").getDay()] : "";
 const dt = (s) => s ? s.replace("T", " ") : "";
@@ -3298,7 +3302,7 @@ async function showShopImg(t, x) {
 }
 function itinCard(i, drag) {
   return `<div class="card row c-${icatOf(i)}" data-edit="itin:${i.id}" data-iid="${i.id}" style="align-items:flex-start;border-left:4px solid var(--cc)">${drag ? '<div class="handle noprint" data-drag title="拖拉排序">⠿</div>' : ""}<div class="time">${esc(i.time || "--:--")}${i.end ? `<div class="mut" style="font-weight:400">${esc(i.end)}</div>` : ""}${i.time && homeDiff(T()) ? `<div class="mut" style="font-weight:400;font-size:calc(11px*var(--fz,1))">${homeT(T(), i.time)}</div>` : ""}</div>
-    <div class="sp"><b>${icatIcon(icatOf(i))} ${esc(i.title)}</b> <span class="tag ctag c-${icatOf(i)}">${icatOf(i)}</span>${cpTag(i.title + " " + (i.place || ""))}${isMulti(i) ? ` <span class="mut">～${i.endDate.slice(5)}（${icatOf(i) === "住宿" ? nights(i) + " 晚" : nights(i) + 1 + " 天"}）</span>` : ""}${(() => { const w = hoursWarn(i, T()); return w ? ` <span class="tag" style="background:var(--warn);color:#fff">${w}</span>` : ""; })()}${i.place ? `<div>${mapLink(i.place)}</div>` : ""}${i.note ? `<div class="mut" style="white-space:pre-wrap">${esc(i.note)}</div>` : ""}</div></div>`;
+    <div class="sp"><b>${icatIcon(icatOf(i))} ${esc(i.title)}</b> <span class="tag ctag c-${icatOf(i)}">${icatOf(i)}</span>${cpTag(i.title + " " + (i.place || ""))}${isMulti(i) ? ` <span class="mut">～${i.endDate.slice(5)}（${icatOf(i) === "住宿" ? nights(i) + " 晚" : nights(i) + 1 + " 天"}）</span>` : ""}${(() => { const w = hoursWarn(i, T()); return w ? ` <span class="tag" style="background:var(--warn);color:#fff">${w}</span>` : ""; })()}${i.place ? `<div>${mapLink(i.place)}</div>` : itinMapUrl(i) ? `<div><a href="${esc(itinMapUrl(i))}" target="_blank" rel="noopener">🗺 地圖 ↗</a></div>` : ""}${i.note ? `<div class="mut" style="white-space:pre-wrap">${esc(i.note)}</div>` : ""}</div></div>`;
 }
 function bookCard(b) {
   const icon = { 機票: "✈️", 住宿: "🏨", 交通: "🚄", 租車: "🚗", 保險: "🛡", 其他: "📌" }[b.type] || "📌";
